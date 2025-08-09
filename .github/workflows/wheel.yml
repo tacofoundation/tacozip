@@ -2,8 +2,8 @@ name: Python wheels
 
 on:
   push:
-    branches: [ main, master ]
-    tags: [ 'v*.*.*' ]
+    branches: [main, master]
+    tags: ['v*.*.*']
   pull_request:
   workflow_dispatch:
 
@@ -41,19 +41,22 @@ jobs:
         shell: bash
         env:
           CIBW_BUILD: "cp39-* cp310-* cp311-* cp312-* cp313-*"
-          CIBW_SKIP: "pp* *-win32 *-manylinux_i686 *-musllinux_*"
+          CIBW_SKIP: "pp* *-win32 *-manylinux_i686"
 
-          CIBW_ARCHS_LINUX: "x86_64"
-          CIBW_ARCHS_MACOS: "x86_64 arm64"
-          CIBW_ARCHS_WINDOWS: "AMD64"
+          # ===== Linux arches =====
+          CIBW_ARCHS_LINUX: "x86_64 aarch64"
+          CIBW_MANYLINUX_X86_64_IMAGE: "manylinux2014"
+          CIBW_MANYLINUX_AARCH64_IMAGE: "manylinux2014"
+          CIBW_MUSLLINUX_X86_64_IMAGE: "musllinux_1_1"
+          CIBW_MUSLLINUX_AARCH64_IMAGE: "musllinux_1_1"
 
-          CIBW_MANYLINUX_X86_64: manylinux2014
+          CIBW_REPAIR_WHEEL_COMMAND_LINUX: "auditwheel repair -w {dest_dir} {wheel}"
 
-          # macOS: cibuildwheel sets CIBW_TARGET_ARCH per run (x86_64 or arm64)
+          # ===== macOS universal2 =====
+          CIBW_ARCHS_MACOS: "universal2"
           CIBW_ENVIRONMENT_MACOS: |
             MACOSX_DEPLOYMENT_TARGET=11.0
 
-          # Enhanced repair command with better diagnostics and error handling
           CIBW_REPAIR_WHEEL_COMMAND_MACOS: >-
             bash -exc "
               python -c 'import zipfile; w=\"{wheel}\"; print(\"== Wheel contents before delocate ==\"); [print(n) for n in zipfile.ZipFile(w).namelist()]' &&
@@ -67,7 +70,10 @@ jobs:
               fi
             "
 
-          # ---- Build native lib inside cibw env and stage it into the package ----
+          # ===== Windows =====
+          CIBW_ARCHS_WINDOWS: "AMD64"
+
+          # ===== Build native lib =====
           CIBW_BEFORE_ALL_LINUX: >
             bash -exc "
               python -m pip install cmake ninja &&
@@ -80,42 +86,25 @@ jobs:
               cmake --build build -j &&
               cp build/libtacozip.so python/tacozip/
             "
+
           CIBW_BEFORE_ALL_MACOS: >
             bash -exc "
               python -m pip install cmake ninja &&
               rm -rf build &&
               cp -f README.md python/ || true &&
               mkdir -p python/tacozip && touch python/tacozip/__init__.py &&
-
-              # Ensure we're building for the correct architecture
-              echo \"Building for architecture: \${CIBW_TARGET_ARCH}\" &&
-              
-              # Force target arch only via CMake (avoid broken -arch propagation in env flags)
+              echo \"Building for CIBW_TARGET_ARCH=\${CIBW_TARGET_ARCH}\" &&
               cmake -S . -B build -G Ninja \
                 -DCMAKE_BUILD_TYPE=Release \
                 -DTACOZIP_ENABLE_IPO=OFF \
                 -DCMAKE_OSX_DEPLOYMENT_TARGET=\${MACOSX_DEPLOYMENT_TARGET} \
-                -DCMAKE_OSX_ARCHITECTURES=\${CIBW_TARGET_ARCH} &&
-
+                -DCMAKE_OSX_ARCHITECTURES=\"x86_64;arm64\" &&
               cmake --build build -j &&
-
               cp build/libtacozip.dylib python/tacozip/ &&
-
-              # Enhanced verification with detailed output
-              echo \"== Built library info ==\" &&
-              file python/tacozip/libtacozip.dylib &&
-              lipo -info python/tacozip/libtacozip.dylib &&
-              
-              # Check if the architecture matches what we expect
-              if ! lipo -info python/tacozip/libtacozip.dylib | grep -q \"\${CIBW_TARGET_ARCH}\"; then
-                echo \"ERROR: Built library architecture doesn't match expected \${CIBW_TARGET_ARCH}\"
-                echo \"Expected: \${CIBW_TARGET_ARCH}\"
-                echo \"Got: \$(lipo -info python/tacozip/libtacozip.dylib)\"
-                exit 1
-              fi &&
-              
-              echo \"Architecture verification passed for \${CIBW_TARGET_ARCH}\"
+              lipo -info python/tacozip/libtacozip.dylib | grep -q \"x86_64\" &&
+              lipo -info python/tacozip/libtacozip.dylib | grep -q \"arm64\"
             "
+
           CIBW_BEFORE_ALL_WINDOWS: >
             bash -exc "
               python -m pip install cmake ninja &&

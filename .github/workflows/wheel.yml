@@ -23,7 +23,6 @@ jobs:
           fetch-depth: 0
           clean: true
 
-      # Always ensure there is NO prebuilt .so/.dylib/.dll inside the package before building
       - name: Clean any prebuilt native libs
         shell: bash
         run: rm -f python/tacozip/libtacozip.* || true
@@ -38,26 +37,34 @@ jobs:
           python -m pip install --upgrade pip
           pip install cibuildwheel==2.*
 
+      # - name: Set up QEMU (for aarch64)
+      #   uses: docker/setup-qemu-action@v3
+      #   with:
+      #     platforms: arm64
+
       - name: Build wheels with cibuildwheel
         shell: bash
         env:
-          # Python ABIs to build
           CIBW_BUILD: "cp39-* cp310-* cp311-* cp312-*"
           CIBW_SKIP: "pp* *-win32 *-manylinux_i686 *-musllinux_*"
 
-          # Architectures
-          CIBW_ARCHS_LINUX: "x86_64"         # add "aarch64" if you enable QEMU above
+          # architectures
+          CIBW_ARCHS_LINUX: "x86_64"          # add aarch64 if you enable QEMU
           CIBW_ARCHS_MACOS: "x86_64 arm64"
           CIBW_ARCHS_WINDOWS: "AMD64"
 
-          # Manylinux policy
+          # manylinux policy
           CIBW_MANYLINUX_X86_64: manylinux2014
-          # CIBW_MANYLINUX_AARCH64: manylinux2014  # if you enable aarch64
 
-          # Build the native lib INSIDE each cibuildwheel environment, then stage it in python/tacozip/
+          # macOS environment
+          CIBW_ENVIRONMENT_MACOS: |
+            MACOSX_DEPLOYMENT_TARGET=11.0
+
+          # ---- build native lib inside cibw envs ----
           CIBW_BEFORE_ALL_LINUX: >
             bash -exc "
               python -m pip install cmake ninja &&
+              rm -rf build &&
               cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=Release -DTACOZIP_ENABLE_IPO=OFF &&
               cmake --build build -j &&
               mkdir -p python/tacozip &&
@@ -66,7 +73,12 @@ jobs:
           CIBW_BEFORE_ALL_MACOS: >
             bash -exc "
               python -m pip install cmake ninja &&
-              cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=Release &&
+              rm -rf build &&
+              cmake -S . -B build -G Ninja \
+                -DCMAKE_BUILD_TYPE=Release \
+                -DTACOZIP_ENABLE_IPO=OFF \
+                -DCMAKE_OSX_DEPLOYMENT_TARGET=${MACOSX_DEPLOYMENT_TARGET} \
+                ${CIBW_ARCHS:+-DCMAKE_OSX_ARCHITECTURES=${CIBW_ARCHS}} &&
               cmake --build build -j &&
               mkdir -p python/tacozip &&
               cp build/libtacozip.dylib python/tacozip/
@@ -74,13 +86,13 @@ jobs:
           CIBW_BEFORE_ALL_WINDOWS: >
             bash -exc "
               python -m pip install cmake ninja &&
+              rm -rf build &&
               cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=Release &&
               cmake --build build -j &&
               mkdir -p python/tacozip &&
               cp build/tacozip.dll python/tacozip/ || cp build/Release/tacozip.dll python/tacozip/
             "
         run: |
-          # IMPORTANT: point cibuildwheel at your project directory that has setup.py (python/)
           cibuildwheel python --output-dir wheelhouse
           ls -l wheelhouse
 
@@ -119,5 +131,4 @@ jobs:
           password: ${{ secrets.PYPI_API_TOKEN }}
           skip-existing: true
           verbose: true
-          # For TestPyPI, add:
           # repository-url: https://test.pypi.org/legacy/

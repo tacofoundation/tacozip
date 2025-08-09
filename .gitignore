@@ -1,0 +1,60 @@
+# Build directories
+/build/
+/build*/
+
+# CMake-generated files
+CMakeCache.txt
+CMakeFiles/
+cmake_install.cmake
+Makefile
+*.cmake
+*.pc
+
+# Generated headers
+/generated/
+tacozip_config.h
+
+# Symlinked/compiled libraries
+*.so
+*.so.*
+*.dylib
+*.dll
+*.a
+*.lib
+*.pdb
+*.exp
+
+# Python build artifacts
+python/build/
+python/dist/
+python/*.egg-info/
+python/**/__pycache__/
+python/**/*.pyc
+python/**/*.pyo
+
+# Julia artifacts (if any)
+*.ji
+
+# MATLAB MEX binaries
+*.mex*
+
+# Archives
+*.zip
+*.tar
+*.gz
+*.tgz
+*.taco.zip
+
+# OS-specific
+.DS_Store
+Thumbs.db
+
+# Test/demo outputs
+my_archive.taco.zip
+
+# Logs
+*.log
+
+# Temporary files
+demo.py
+pyinstall.sh

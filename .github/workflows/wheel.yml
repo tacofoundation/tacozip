@@ -23,11 +23,10 @@ jobs:
           fetch-depth: 0
           clean: true
 
-      # Ensure there is NO prebuilt .so inside the package
+      # Always ensure there is NO prebuilt .so/.dylib/.dll inside the package before building
       - name: Clean any prebuilt native libs
-        run: |
-          rm -f python/tacozip/libtacozip.* || true
-          git status --porcelain
+        shell: bash
+        run: rm -f python/tacozip/libtacozip.* || true
 
       - name: Set up Python
         uses: actions/setup-python@v5
@@ -40,14 +39,22 @@ jobs:
           pip install cibuildwheel==2.*
 
       - name: Build wheels with cibuildwheel
+        shell: bash
         env:
+          # Python ABIs to build
           CIBW_BUILD: "cp39-* cp310-* cp311-* cp312-*"
           CIBW_SKIP: "pp* *-win32 *-manylinux_i686 *-musllinux_*"
-          CIBW_ARCHS_LINUX: "x86_64 aarch64"
+
+          # Architectures
+          CIBW_ARCHS_LINUX: "x86_64"         # add "aarch64" if you enable QEMU above
           CIBW_ARCHS_MACOS: "x86_64 arm64"
           CIBW_ARCHS_WINDOWS: "AMD64"
 
-          # Build INSIDE each platform env, then copy lib into python/tacozip/
+          # Manylinux policy
+          CIBW_MANYLINUX_X86_64: manylinux2014
+          # CIBW_MANYLINUX_AARCH64: manylinux2014  # if you enable aarch64
+
+          # Build the native lib INSIDE each cibuildwheel environment, then stage it in python/tacozip/
           CIBW_BEFORE_ALL_LINUX: >
             bash -exc "
               python -m pip install cmake ninja &&
@@ -58,7 +65,7 @@ jobs:
             "
           CIBW_BEFORE_ALL_MACOS: >
             bash -exc "
-              python -m pip install cmake ninja delocate &&
+              python -m pip install cmake ninja &&
               cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=Release &&
               cmake --build build -j &&
               mkdir -p python/tacozip &&
@@ -72,14 +79,45 @@ jobs:
               mkdir -p python/tacozip &&
               cp build/tacozip.dll python/tacozip/ || cp build/Release/tacozip.dll python/tacozip/
             "
-
-          # manylinux policy (default is fine, but set explicitly if you want)
-          CIBW_MANYLINUX_X86_64: manylinux2014
-          CIBW_MANYLINUX_AARCH64: manylinux2014
-
-          # macOS: repair
-          CIBW_BEFORE_BUILD_MACOS: "pip install delocate"
-          CIBW_REPAIR_WHEEL_COMMAND_MACOS: "delocate-wheel -w {dest_dir} -v {wheel}"
         run: |
+          # IMPORTANT: point cibuildwheel at your project directory that has setup.py (python/)
           cibuildwheel python --output-dir wheelhouse
           ls -l wheelhouse
+
+      - name: Upload wheels (artifact)
+        uses: actions/upload-artifact@v4
+        with:
+          name: wheels-${{ matrix.os }}
+          path: wheelhouse/*.whl
+
+  publish:
+    name: Publish to PyPI (on tag)
+    needs: build-wheels
+    runs-on: ubuntu-latest
+    if: startsWith(github.ref, 'refs/tags/v')
+    steps:
+      - name: Download built wheels
+        uses: actions/download-artifact@v4
+        with:
+          path: dist
+          pattern: wheels-*
+          merge-multiple: true
+
+      - name: List artifacts to publish
+        shell: bash
+        run: |
+          echo "Files in dist/:"
+          ls -l dist || true
+          echo "Wheel files:"
+          find dist -type f -name '*.whl' -print || true
+
+      - name: Publish to PyPI
+        uses: pypa/gh-action-pypi-publish@v1.12.4
+        with:
+          packages_dir: dist
+          user: __token__
+          password: ${{ secrets.PYPI_API_TOKEN }}
+          skip-existing: true
+          verbose: true
+          # For TestPyPI, add:
+          # repository-url: https://test.pypi.org/legacy/

@@ -61,11 +61,10 @@ jobs:
           CIBW_ARCHS_LINUX: "x86_64 aarch64"
           CIBW_ARCHS_MACOS: "x86_64 arm64"
           CIBW_ARCHS_WINDOWS: "AMD64"
-          # Mark wheel as platform-specific + allow bundling native lib
           CIBW_REPAIR_WHEEL_COMMAND_MACOS: "delocate-wheel -w {dest_dir} -v {wheel}"
           CIBW_BEFORE_BUILD_MACOS: "pip install delocate"
         run: |
-          cibuildwheel --output-dir wheelhouse
+          cibuildwheel python --output-dir wheelhouse
           ls -l wheelhouse
 
       - name: Upload wheels as artifacts

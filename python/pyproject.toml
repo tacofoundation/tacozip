@@ -1,0 +1,21 @@
+[build-system]
+requires = ["setuptools>=69", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "tacozip"
+version = "0.1.0"
+description = "TACO ZIP: CIP64 (always ZIP64) writer with a fixed 64-byte ghost LFH"
+readme = { file = "README.md", content-type = "text/markdown" }
+authors = [{ name = "Cesar Aybar", email = "cesar.aybar@proton.me" }]
+requires-python = ">=3.9"
+
+[tool.setuptools]
+include-package-data = true
+
+[tool.setuptools.packages.find]
+where = ["."]
+include = ["tacozip*"]
+
+[tool.setuptools.package-data]
+tacozip = ["libtacozip.*"]

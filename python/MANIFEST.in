@@ -1,0 +1,2 @@
+include tacozip/libtacozip.*
+include README.md

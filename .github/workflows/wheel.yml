@@ -37,59 +37,69 @@ jobs:
           python -m pip install --upgrade pip
           pip install cibuildwheel==2.*
 
-      # - name: Set up QEMU (for aarch64)
-      #   uses: docker/setup-qemu-action@v3
-      #   with:
-      #     platforms: arm64
-
       - name: Build wheels with cibuildwheel
         shell: bash
         env:
           CIBW_BUILD: "cp39-* cp310-* cp311-* cp312-*"
           CIBW_SKIP: "pp* *-win32 *-manylinux_i686 *-musllinux_*"
 
-          # architectures
-          CIBW_ARCHS_LINUX: "x86_64"          # add aarch64 if you enable QEMU
+          CIBW_ARCHS_LINUX: "x86_64"
           CIBW_ARCHS_MACOS: "x86_64 arm64"
           CIBW_ARCHS_WINDOWS: "AMD64"
 
-          # manylinux policy
           CIBW_MANYLINUX_X86_64: manylinux2014
 
-          # macOS environment
+          # macOS: cibuildwheel sets CIBW_TARGET_ARCH per run (x86_64 or arm64)
           CIBW_ENVIRONMENT_MACOS: |
             MACOSX_DEPLOYMENT_TARGET=11.0
 
-          # ---- build native lib inside cibw envs ----
+          # Print wheel contents, then repair (YAML-safe single line)
+          CIBW_REPAIR_WHEEL_COMMAND_MACOS: >-
+            bash -exc "python -c 'import zipfile; w=\"{wheel}\"; print(\"== Wheel contents before delocate ==\"); [print(n) for n in zipfile.ZipFile(w).namelist()]' && delocate-wheel --require-archs {delocate_archs} -w {dest_dir} -v {wheel}"
+
+          # ---- Build native lib inside cibw env and stage it into the package ----
           CIBW_BEFORE_ALL_LINUX: >
             bash -exc "
               python -m pip install cmake ninja &&
               rm -rf build &&
-              cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=Release -DTACOZIP_ENABLE_IPO=OFF &&
+              cp -f README.md python/ || true &&
+              mkdir -p python/tacozip && touch python/tacozip/__init__.py &&
+              cmake -S . -B build -G Ninja \
+                -DCMAKE_BUILD_TYPE=Release \
+                -DTACOZIP_ENABLE_IPO=OFF &&
               cmake --build build -j &&
-              mkdir -p python/tacozip &&
               cp build/libtacozip.so python/tacozip/
             "
           CIBW_BEFORE_ALL_MACOS: >
             bash -exc "
               python -m pip install cmake ninja &&
               rm -rf build &&
+              cp -f README.md python/ || true &&
+              mkdir -p python/tacozip && touch python/tacozip/__init__.py &&
+
+              # Force target arch only via CMake (avoid broken -arch propagation in env flags)
               cmake -S . -B build -G Ninja \
                 -DCMAKE_BUILD_TYPE=Release \
                 -DTACOZIP_ENABLE_IPO=OFF \
                 -DCMAKE_OSX_DEPLOYMENT_TARGET=${MACOSX_DEPLOYMENT_TARGET} \
-                ${CIBW_ARCHS:+-DCMAKE_OSX_ARCHITECTURES=${CIBW_ARCHS}} &&
+                -DCMAKE_OSX_ARCHITECTURES=${CIBW_TARGET_ARCH} &&
+
               cmake --build build -j &&
-              mkdir -p python/tacozip &&
-              cp build/libtacozip.dylib python/tacozip/
+
+              cp build/libtacozip.dylib python/tacozip/ &&
+
+              # Verify arch and fail early if wrong
+              (command -v lipo >/dev/null 2>&1 && lipo -info python/tacozip/libtacozip.dylib) || file python/tacozip/libtacozip.dylib
+              (lipo -info python/tacozip/libtacozip.dylib | grep -q \"${CIBW_TARGET_ARCH}\") || { echo \"ERROR: built lib is not ${CIBW_TARGET_ARCH}\"; exit 2; }
             "
           CIBW_BEFORE_ALL_WINDOWS: >
             bash -exc "
               python -m pip install cmake ninja &&
               rm -rf build &&
+              cp -f README.md python/ || true &&
+              mkdir -p python/tacozip && ( [ -f python/tacozip/__init__.py ] || echo > python/tacozip/__init__.py ) &&
               cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=Release &&
               cmake --build build -j &&
-              mkdir -p python/tacozip &&
               cp build/tacozip.dll python/tacozip/ || cp build/Release/tacozip.dll python/tacozip/
             "
         run: |
@@ -131,4 +141,3 @@ jobs:
           password: ${{ secrets.PYPI_API_TOKEN }}
           skip-existing: true
           verbose: true
-          # repository-url: https://test.pypi.org/legacy/

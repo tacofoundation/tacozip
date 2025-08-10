@@ -1,7 +1,7 @@
 import sys
 from pathlib import Path
 import shutil
-from glob import glob
+import os, sys
 
 from setuptools import setup, Distribution
 from setuptools.command.build_py import build_py as _build_py
@@ -50,6 +50,22 @@ class BuildTacozipExt(_build_py):
         raise FileNotFoundError(
             f"tacozip shared library not found in {build_dir}"
         )
+
+def _lib_name():
+    if sys.platform.startswith("win"):
+        return "tacozip.dll"
+    elif sys.platform == "darwin":
+        return "libtacozip.dylib"
+    else:
+        return "libtacozip.so"
+
+def _self_check():
+    here = os.path.dirname(__file__)
+    name = _lib_name()
+    path = os.path.join(here, name)
+    if not os.path.exists(path):
+        raise ImportError(f"Native library {name} not found at: {path}")
+
 
 if __name__ == "__main__":
     setup(

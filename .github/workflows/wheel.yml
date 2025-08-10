@@ -34,27 +34,25 @@ jobs:
 
       # Required for aarch64 Linux wheels on x86_64 runners
       - name: Set up QEMU (arm64)
-        if: runner.os == 'Linux'
+        if: ${{ runner.os == 'Linux' }}
         uses: docker/setup-qemu-action@v3
         with:
           platforms: arm64
 
-      # Quick smoke test that the arm64 container can run
       - name: Verify arm64 container runs
-        if: runner.os == 'Linux'
+        if: ${{ runner.os == 'Linux' }}
         run: docker run --rm --platform linux/arm64 quay.io/pypa/manylinux2014_aarch64:2025.04.19-1 uname -m
 
       - name: Install cibuildwheel
+        shell: bash
         run: |
           python -m pip install --upgrade pip
-          pip install cibuildwheel==2.*
+          pip install 'cibuildwheel==2.*'
 
       - name: Build wheels with cibuildwheel
         shell: bash
         env:
-          # Python versions to build
           CIBW_BUILD: "cp39-* cp310-* cp311-* cp312-* cp313-*"
-          # Skip PyPy and old 32-bit images
           CIBW_SKIP: "pp* *-win32 *-manylinux_i686"
 
           # ===== Linux =====
@@ -67,83 +65,41 @@ jobs:
           CIBW_ARCHS_MACOS: "universal2"
           CIBW_ENVIRONMENT_MACOS: |
             MACOSX_DEPLOYMENT_TARGET=11.0
-          CIBW_REPAIR_WHEEL_COMMAND_MACOS: >-
-            bash -exc "
-              python -m pip install delocate &&
-              delocate-wheel --require-archs {delocate_archs} -w {dest_dir} -v {wheel}
-            "
+          CIBW_REPAIR_WHEEL_COMMAND_MACOS: |
+            bash -exc "python -m pip install delocate && delocate-wheel --require-archs {delocate_archs} -w {dest_dir} -v {wheel}"
 
           # ===== Windows =====
           CIBW_ARCHS_WINDOWS: "AMD64"
 
           # ===== Build native lib (stage into package) =====
-          # Build the shared library with CMake and copy it into clients/python/tacozip/
-          # Normalize the filename so setuptools package_data picks it reliably.
-          CIBW_BEFORE_ALL_LINUX: >
-            bash -exc "
-              python -m pip install cmake ninja &&
-              rm -rf build/release &&
-              mkdir -p clients/python/tacozip && : > clients/python/tacozip/__init__.py &&
-              cp -f README.md clients/python/ || true &&
-              cmake -S . -B build/release -G Ninja -DCMAKE_BUILD_TYPE=Release -DTACOZIP_ENABLE_IPO=OFF &&
-              cmake --build build/release -j &&
-              so_path=$(find build/release -maxdepth 2 -type f -name 'libtacozip*.so*' | head -n1) &&
-              echo 'Found SO:' ${so_path:-NONE} &&
-              test -n \"$so_path\" || (echo 'libtacozip.so not found' >&2; exit 2) &&
-              cp \"$so_path\" clients/python/tacozip/libtacozip.so
-            "
-          CIBW_BEFORE_ALL_MACOS: >
-            bash -exc "
-              python -m pip install cmake ninja &&
-              rm -rf build/release &&
-              mkdir -p clients/python/tacozip && : > clients/python/tacozip/__init__.py &&
-              cp -f README.md clients/python/ || true &&
-              cmake -S . -B build/release -G Ninja \
-                -DCMAKE_BUILD_TYPE=Release \
-                -DTACOZIP_ENABLE_IPO=OFF \
-                -DCMAKE_OSX_DEPLOYMENT_TARGET=${MACOSX_DEPLOYMENT_TARGET} \
-                -DCMAKE_OSX_ARCHITECTURES='x86_64;arm64' &&
-              cmake --build build/release -j &&
-              dylib_path=$(find build/release -maxdepth 2 -type f -name 'libtacozip*.dylib' | head -n1) &&
-              echo 'Found DYLIB:' ${dylib_path:-NONE} &&
-              test -n \"$dylib_path\" || (echo 'libtacozip.dylib not found' >&2; exit 2) &&
-              cp \"$dylib_path\" clients/python/tacozip/libtacozip.dylib
-            "
-          CIBW_BEFORE_ALL_WINDOWS: >
-            bash -exc "
-              python -m pip install cmake ninja &&
-              rm -rf build/release &&
-              mkdir -p clients/python/tacozip && ( [ -f clients/python/tacozip/__init__.py ] || echo > clients/python/tacozip/__init__.py ) &&
-              cp -f README.md clients/python/ || true &&
-              cmake -S . -B build/release -G Ninja -DCMAKE_BUILD_TYPE=Release &&
-              cmake --build build/release -j &&
-              dll_path=$( (find build/release -maxdepth 2 -type f -name 'tacozip*.dll' | head -n1) || true ) &&
-              echo 'Found DLL:' ${dll_path:-NONE} &&
-              test -n \"$dll_path\" || (echo 'tacozip.dll not found' >&2; exit 2) &&
-              cp \"$dll_path\" clients/python/tacozip/tacozip.dll
-            "
+          CIBW_BEFORE_ALL_LINUX: |
+            bash -exc "python -m pip install cmake ninja && rm -rf build/release && mkdir -p clients/python/tacozip && : > clients/python/tacozip/__init__.py && cp -f README.md clients/python/ || true && cmake -S . -B build/release -G Ninja -DCMAKE_BUILD_TYPE=Release -DTACOZIP_ENABLE_IPO=OFF && cmake --build build/release -j && so_path=$(find build/release -maxdepth 2 -type f -name 'libtacozip*.so*' | head -n1) && echo Found SO: ${so_path:-NONE} && test -n \"$so_path\" || (echo 'libtacozip.so not found' >&2; exit 2) && cp \"$so_path\" clients/python/tacozip/libtacozip.so"
+
+          CIBW_BEFORE_ALL_MACOS: |
+            bash -exc "python -m pip install cmake ninja && rm -rf build/release && mkdir -p clients/python/tacozip && : > clients/python/tacozip/__init__.py && cp -f README.md clients/python/ || true && cmake -S . -B build/release -G Ninja -DCMAKE_BUILD_TYPE=Release -DTACOZIP_ENABLE_IPO=OFF -DCMAKE_OSX_DEPLOYMENT_TARGET=${MACOSX_DEPLOYMENT_TARGET} -DCMAKE_OSX_ARCHITECTURES='x86_64;arm64' && cmake --build build/release -j && dylib_path=$(find build/release -maxdepth 2 -type f -name 'libtacozip*.dylib' | head -n1) && echo Found DYLIB: ${dylib_path:-NONE} && test -n \"$dylib_path\" || (echo 'libtacozip.dylib not found' >&2; exit 2) && cp \"$dylib_path\" clients/python/tacozip/libtacozip.dylib"
+
+          CIBW_BEFORE_ALL_WINDOWS: |
+            python -m pip install cmake ninja; `
+            if (Test-Path build\release) { Remove-Item -Recurse -Force build\release }; `
+            New-Item -ItemType Directory -Force clients\python\tacozip | Out-Null; `
+            if (!(Test-Path clients\python\tacozip\__init__.py)) { '' | Out-File -Encoding ascii clients\python\tacozip\__init__.py }; `
+            if (Test-Path README.md) { Copy-Item README.md clients\python\ -Force }; `
+            cmake -S . -B build/release -G Ninja -DCMAKE_BUILD_TYPE=Release; `
+            cmake --build build/release -j; `
+            $dll = Get-ChildItem -Path build/release -Recurse -Filter tacozip*.dll | Select-Object -First 1; `
+            if (-not $dll) { Write-Error 'tacozip.dll not found'; exit 2 }; `
+            Copy-Item $dll.FullName clients\python\tacozip\tacozip.dll -Force
+
+          # Run after each wheel is built (invokes your __main__.py self-check)
+          CIBW_TEST_COMMAND: python -m tacozip
         run: |
-          # Precheck: the normalized shared library must be present before building wheels
-          echo "Package contents before wheel build:"
+          echo "Package contents before wheel build (native lib will be created inside cibuildwheel env):"
           ls -l clients/python/tacozip || true
-          if [ "$RUNNER_OS" = "Windows" ]; then
-            powershell -Command "if (!(Test-Path 'clients/python/tacozip/tacozip.dll')) { Get-ChildItem clients/python/tacozip | ForEach-Object { Write-Host $_.FullName }; Write-Error 'Missing tacozip.dll' ; exit 1 }"
-          elif [ "$RUNNER_OS" = "macOS" ]; then
-            test -f clients/python/tacozip/libtacozip.dylib || (echo 'Missing libtacozip.dylib' && ls -l clients/python/tacozip && exit 1)
-          else
-            test -f clients/python/tacozip/libtacozip.so || (echo 'Missing libtacozip.so' && ls -l clients/python/tacozip && exit 1)
-          fi
 
           cibuildwheel clients/python --output-dir wheelhouse
-          ls -l wheelhouse
 
-      - name: Verify wheel packages include native library
-        shell: bash
-        run: |
-          set -euo pipefail
-          wheel=$(ls wheelhouse/*.whl | head -n1)
-          echo "Inspecting $wheel"
-          python -c "import os,glob,zipfile,sys; w=glob.glob('wheelhouse/*.whl')[0]; n = 'tacozip.dll' if os.getenv('RUNNER_OS')=='Windows' else ('libtacozip.dylib' if os.getenv('RUNNER_OS')=='macOS' else 'libtacozip.so'); import zipfile; z=zipfile.ZipFile(w); names=z.namelist(); z.close(); import sys; sys.exit(0) if any(s.endswith(n) for s in names) else (_ for _ in ()).throw(SystemExit(f'{n} missing from {w}'))"
+          echo "Wheels produced:"
+          ls -l wheelhouse
 
       - name: Upload wheels (artifact)
         uses: actions/upload-artifact@v4

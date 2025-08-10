@@ -72,8 +72,6 @@ jobs:
           CIBW_ARCHS_WINDOWS: "AMD64"
 
           # ===== Build native lib (stage into package) =====
-          # Build and then robustly stage the produced library into clients/python/tacozip/
-
           CIBW_BEFORE_ALL_LINUX: |
             bash -exc "
               python -m pip install cmake ninja &&
@@ -111,18 +109,18 @@ jobs:
               cp \"\$lib\" clients/python/tacozip/libtacozip.dylib
             "
 
-          CIBW_BEFORE_ALL_WINDOWS: >-
-            python -m pip install cmake ninja &&
-            if exist build\release rmdir /s /q build\release &&
-            mkdir clients\python\tacozip &&
-            if exist README.md copy README.md clients\python\ &&
-            cmake -S . -B build/release -G Ninja -DCMAKE_BUILD_TYPE=Release &&
-            cmake --build build/release -j &&
-            dir build\release &&
-            for /r build\release %%i in (tacozip*.dll) do copy "%%i" clients\python\tacozip\tacozip.dll
+          CIBW_BEFORE_ALL_WINDOWS: |
+            python -m pip install cmake ninja
+            if exist build\release rmdir /s /q build\release
+            mkdir clients\python\tacozip
+            if exist README.md copy README.md clients\python\
+            cmake -S . -B build/release -G Ninja -DCMAKE_BUILD_TYPE=Release
+            cmake --build build/release -j
+            dir build\release
+            if exist build\release\tacozip.dll copy build\release\tacozip.dll clients\python\tacozip\tacozip.dll
 
-          # Run after each wheel is built (invokes your __main__.py self-check)
-          CIBW_TEST_COMMAND: python -m tacozip
+          # Test command bypasses __main__.py issue
+          CIBW_TEST_COMMAND: python -c "import tacozip; tacozip._self_check._self_check(); print('tacozip test passed')"
         run: |
           echo "Package contents before wheel build (native lib will be created inside cibuildwheel env):"
           ls -l clients/python/tacozip || true

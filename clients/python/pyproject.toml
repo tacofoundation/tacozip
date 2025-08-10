@@ -4,7 +4,7 @@ version = "0.1.0"
 requires-python = ">=3.9"
 description = "Fast ZIP-like container with ghost metadata"
 readme = "README.md"
-license = { file = "LICENSE" }
+license = "GNU General Public License v3 (GPLv3)"
 authors = [{ name = "Cesar Aybar" }]
 
 [tool.setuptools]

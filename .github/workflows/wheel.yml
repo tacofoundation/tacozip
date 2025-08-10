@@ -111,16 +111,18 @@ jobs:
               cp \"\$lib\" clients/python/tacozip/libtacozip.dylib
             "
 
-          CIBW_BEFORE_ALL_WINDOWS: |
-            python -m pip install cmake ninja
-            rmdir /s /q build 2>nul || echo "build dir not found, continuing"
-            mkdir clients\python\tacozip 2>nul || echo "tacozip dir exists"
-            copy README.md clients\python\ 2>nul || echo "README.md not copied"
-            copy LICENSE clients\python\ 2>nul || echo "LICENSE not copied"
-            cmake -S . -B build\release -G Ninja -DCMAKE_BUILD_TYPE=Release -DTACOZIP_ENABLE_IPO=OFF
-            cmake --build build\release -j
-            dir build\release
-            copy build\release\tacozip.dll clients\python\tacozip\ 2>nul || copy build\release\libtacozip.dll clients\python\tacozip\tacozip.dll 2>nul || echo "No DLL found to copy"
+          CIBW_BEFORE_ALL_WINDOWS: >
+            python -m pip install cmake ninja &&
+            if exist build rmdir /s /q build &&
+            mkdir clients\python\tacozip 2>nul &&
+            echo Building tacozip library... &&
+            cmake -S . -B build\release -G Ninja -DCMAKE_BUILD_TYPE=Release -DTACOZIP_ENABLE_IPO=OFF &&
+            cmake --build build\release -j &&
+            echo Build complete, listing build directory: &&
+            dir build\release &&
+            echo Copying DLL to package directory... &&
+            (copy build\release\tacozip.dll clients\python\tacozip\tacozip.dll || copy build\release\libtacozip.dll clients\python\tacozip\tacozip.dll || echo WARNING: No DLL found) &&
+            echo Final package contents: &&
             dir clients\python\tacozip
 
           # Test command bypasses __main__.py issue

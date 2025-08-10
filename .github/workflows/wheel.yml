@@ -82,14 +82,14 @@ jobs:
               cp -f README.md clients/python/ || true &&
               cmake -S . -B build/release -G Ninja -DCMAKE_BUILD_TYPE=Release -DTACOZIP_ENABLE_IPO=OFF &&
               cmake --build build/release -j &&
-              ls -l build/release ||
-              true &&
-              lib=''
-              if [ -f build/release/libtacozip.so ]; then lib=build/release/libtacozip.so; fi
-              if [ -z \"$lib\" ]; then lib=$(ls -1 build/release/libtacozip*.so* 2>/dev/null | head -n1 || true); fi
-              echo \"Picked SO: \${lib:-NONE}\"
-              test -n \"$lib\" || (echo 'libtacozip.so not found' >&2; exit 2)
-              cp \"$lib\" clients/python/tacozip/libtacozip.so
+              ls -la build/release/ &&
+              lib=\$(find build/release -name 'libtacozip.so.*' -type f | head -n1)
+              if [ -z \"\$lib\" ]; then
+                lib=\$(find build/release -name 'libtacozip.so' -type f | head -n1)
+              fi
+              echo \"Found library: \${lib:-NONE}\"
+              test -n \"\$lib\" || (echo 'libtacozip.so not found' >&2; exit 2)
+              cp \"\$lib\" clients/python/tacozip/libtacozip.so
             "
 
           CIBW_BEFORE_ALL_MACOS: |
@@ -111,17 +111,15 @@ jobs:
               cp \"\$lib\" clients/python/tacozip/libtacozip.dylib
             "
 
-          CIBW_BEFORE_ALL_WINDOWS: |
-            python -m pip install cmake ninja; `
-            if (Test-Path build\release) { Remove-Item -Recurse -Force build\release }; `
-            New-Item -ItemType Directory -Force clients\python\tacozip | Out-Null; `
-            if (Test-Path README.md) { Copy-Item README.md clients\python\ -Force }; `
-            cmake -S . -B build/release -G Ninja -DCMAKE_BUILD_TYPE=Release; `
-            cmake --build build/release -j; `
-            Get-ChildItem build\release | Format-List Name,Length; `
-            $dll = Get-ChildItem -Path build\release -Recurse -Filter tacozip*.dll | Select-Object -First 1; `
-            if (-not $dll) { Write-Error 'tacozip.dll not found'; exit 2 }; `
-            Copy-Item $dll.FullName clients\python\tacozip\tacozip.dll -Force
+          CIBW_BEFORE_ALL_WINDOWS: >-
+            python -m pip install cmake ninja &&
+            if exist build\release rmdir /s /q build\release &&
+            mkdir clients\python\tacozip &&
+            if exist README.md copy README.md clients\python\ &&
+            cmake -S . -B build/release -G Ninja -DCMAKE_BUILD_TYPE=Release &&
+            cmake --build build/release -j &&
+            dir build\release &&
+            for /r build\release %%i in (tacozip*.dll) do copy "%%i" clients\python\tacozip\tacozip.dll
 
           # Run after each wheel is built (invokes your __main__.py self-check)
           CIBW_TEST_COMMAND: python -m tacozip

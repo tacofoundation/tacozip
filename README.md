@@ -10,40 +10,6 @@
 - **Cross-platform** — Linux, macOS, Windows
 - **C library + Python bindings** — fast native performance
 
-## Installation
-
-```bash
-pip install tacozip
-```
-
-## Quick Start
-
-```python
-import tacozip
-
-# Create archive with multiple metadata entries
-tacozip.create_multi(
-    "data.taco.zip",
-    ["file1.parquet", "file2.parquet"],
-    ["file1.parquet", "file2.parquet"], 
-    [1000, 2500, 0, 0, 0, 0, 0],  # metadata offsets
-    [500,  750,  0, 0, 0, 0, 0]   # metadata lengths
-)
-
-# Read metadata entries
-count, entries = tacozip.read_ghost_multi("data.taco.zip")
-for i in range(count):
-    offset, length = entries[i]
-    print(f"Entry {i+1}: offset={offset}, length={length}")
-
-# Update metadata
-tacozip.update_ghost_multi(
-    "data.taco.zip",
-    [1500, 3000, 0, 0, 0, 0, 0],  # new offsets
-    [600,  800,  0, 0, 0, 0, 0]   # new lengths
-)
-```
-
 ## API Reference
 
 ### Multi-Parquet API (Recommended)

@@ -827,4 +827,3 @@ int tacozip_update_ghost(const char *zip_path, uint64_t new_offset, uint64_t new
     /* Use multi-updater */
     return tacozip_update_ghost_multi(zip_path, offsets, lengths, TACO_GHOST_MAX_ENTRIES);
 }
- 

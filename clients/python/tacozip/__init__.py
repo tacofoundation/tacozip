@@ -12,6 +12,7 @@ tacozip - High-performance ZIP64 writer with TACO Ghost metadata support.
 from .version import __version__
 from .config import *
 from .exceptions import TacozipError
+from .loader import self_check
 
 # Import APIs directly from bindings
 from .bindings import (
@@ -36,6 +37,9 @@ __all__ = [
     "__url__",
     "__license__",
     
+    # loader
+    "self_check",
+
     # Constants
     "TACOZ_OK",
     "TACOZ_ERR_IO",
@@ -57,3 +61,5 @@ __all__ = [
     "read_ghost_multi",
     "update_ghost_multi",
 ]
+
+

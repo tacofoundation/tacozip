@@ -120,7 +120,7 @@ jobs:
             if exist build\release\tacozip.dll copy build\release\tacozip.dll clients\python\tacozip\tacozip.dll
 
           # Test command bypasses __main__.py issue
-          CIBW_TEST_COMMAND: python -c "import tacozip; tacozip._self_check._self_check(); print('tacozip test passed')"
+          CIBW_TEST_COMMAND: python -c "import tacozip; tacozip._self_check(); print('tacozip test passed')"
         run: |
           echo "Package contents before wheel build (native lib will be created inside cibuildwheel env):"
           ls -l clients/python/tacozip || true

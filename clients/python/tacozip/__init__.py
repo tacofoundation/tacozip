@@ -5,7 +5,7 @@ from pathlib import Path
 
 
 try:
-    from ._self_check import _self_check
+    from tacozip._self_check import _self_check
 except ImportError:
     # Fallback if _self_check module doesn't exist
     def _self_check():

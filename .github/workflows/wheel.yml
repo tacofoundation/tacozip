@@ -2,7 +2,7 @@ name: Python wheels
 
 on:
   push:
-    branches: [main, master, good]
+    branches: [main, master]
     tags: ['v*.*.*']
   pull_request:
   workflow_dispatch:
@@ -72,12 +72,44 @@ jobs:
           CIBW_ARCHS_WINDOWS: "AMD64"
 
           # ===== Build native lib (stage into package) =====
+          # Build and then robustly stage the produced library into clients/python/tacozip/
           CIBW_BEFORE_ALL_LINUX: |
-            bash -exc "python -m pip install cmake ninja && rm -rf build/release && mkdir -p clients/python/tacozip && : > clients/python/tacozip/__init__.py && cp -f README.md clients/python/ || true && cmake -S . -B build/release -G Ninja -DCMAKE_BUILD_TYPE=Release -DTACOZIP_ENABLE_IPO=OFF && cmake --build build/release -j && so_path=$(find build/release -maxdepth 2 -type f -name 'libtacozip*.so*' | head -n1) && echo Found SO: ${so_path:-NONE} && test -n \"$so_path\" || (echo 'libtacozip.so not found' >&2; exit 2) && cp \"$so_path\" clients/python/tacozip/libtacozip.so"
+            bash -exc "
+              python -m pip install cmake ninja &&
+              rm -rf build/release &&
+              mkdir -p clients/python/tacozip && : > clients/python/tacozip/__init__.py &&
+              cp -f README.md clients/python/ || true &&
+              cmake -S . -B build/release -G Ninja -DCMAKE_BUILD_TYPE=Release -DTACOZIP_ENABLE_IPO=OFF &&
+              cmake --build build/release -j &&
+              lib=''
+              if [ -f build/release/libtacozip.so ]; then lib=build/release/libtacozip.so; fi
+              if [ -z \"$lib\" ]; then lib=$(ls -1 build/release/libtacozip*.so* 2>/dev/null | head -n1 || true); fi
+              echo \"Picked SO: \${lib:-NONE}\"
+              test -n \"$lib\" || (echo 'libtacozip.so not found' >&2; exit 2)
+              cp \"$lib\" clients/python/tacozip/libtacozip.so
+            "
 
           CIBW_BEFORE_ALL_MACOS: |
-            bash -exc "python -m pip install cmake ninja && rm -rf build/release && mkdir -p clients/python/tacozip && : > clients/python/tacozip/__init__.py && cp -f README.md clients/python/ || true && cmake -S . -B build/release -G Ninja -DCMAKE_BUILD_TYPE=Release -DTACOZIP_ENABLE_IPO=OFF -DCMAKE_OSX_DEPLOYMENT_TARGET=${MACOSX_DEPLOYMENT_TARGET} -DCMAKE_OSX_ARCHITECTURES='x86_64;arm64' && cmake --build build/release -j && dylib_path=$(find build/release -maxdepth 2 -type f -name 'libtacozip*.dylib' | head -n1) && echo Found DYLIB: ${dylib_path:-NONE} && test -n \"$dylib_path\" || (echo 'libtacozip.dylib not found' >&2; exit 2) && cp \"$dylib_path\" clients/python/tacozip/libtacozip.dylib"
+            bash -exc "
+              python -m pip install cmake ninja &&
+              rm -rf build/release &&
+              mkdir -p clients/python/tacozip && : > clients/python/tacozip/__init__.py &&
+              cp -f README.md clients/python/ || true &&
+              cmake -S . -B build/release -G Ninja \
+                -DCMAKE_BUILD_TYPE=Release \
+                -DTACOZIP_ENABLE_IPO=OFF \
+                -DCMAKE_OSX_DEPLOYMENT_TARGET=${MACOSX_DEPLOYMENT_TARGET} \
+                -DCMAKE_OSX_ARCHITECTURES='x86_64;arm64' &&
+              cmake --build build/release -j &&
+              lib=''
+              if [ -f build/release/libtacozip.dylib ]; then lib=build/release/libtacozip.dylib; fi
+              if [ -z \"$lib\" ]; then lib=$(ls -1 build/release/libtacozip*.dylib 2>/dev/null | head -n1 || true); fi
+              echo \"Picked DYLIB: \${lib:-NONE}\"
+              test -n \"$lib\" || (echo 'libtacozip.dylib not found' >&2; exit 2)
+              cp \"$lib\" clients/python/tacozip/libtacozip.dylib
+            "
 
+          # cibuildwheel runs Windows hooks in PowerShell
           CIBW_BEFORE_ALL_WINDOWS: |
             python -m pip install cmake ninja; `
             if (Test-Path build\release) { Remove-Item -Recurse -Force build\release }; `

@@ -110,22 +110,27 @@ jobs:
             "
 
           CIBW_BEFORE_ALL_WINDOWS: >
+            echo Starting Windows build process... &&
             python -m pip install cmake ninja &&
+            echo Cleaning build directory... &&
             if exist build rmdir /s /q build &&
+            echo Creating package directory... &&
             if not exist clients\python\tacozip mkdir clients\python\tacozip &&
             echo Building tacozip library... &&
             cmake -S . -B build\release -G Ninja -DCMAKE_BUILD_TYPE=Release -DTACOZIP_ENABLE_IPO=OFF &&
             cmake --build build\release -j &&
             echo Build complete, listing build directory: &&
             dir build\release &&
-            echo Looking for DLL files... &&
-            dir build\release\*.dll 2>nul &&
-            echo Copying DLL to package directory... &&
-            (copy build\release\tacozip.dll clients\python\tacozip\ && echo Copied tacozip.dll) || 
-            (copy build\release\libtacozip.dll clients\python\tacozip\tacozip.dll && echo Copied libtacozip.dll as tacozip.dll) || 
-            echo ERROR: No DLL found in build directory &&
-            echo Final package contents: &&
-            dir clients\python\tacozip 2>nul
+            echo Looking for DLL files in build directory... &&
+            (dir build\release\*.dll && echo Found DLL files) || echo No DLL files found &&
+            echo Attempting to copy DLL... &&
+            (copy build\release\tacozip.dll clients\python\tacozip\ && echo Successfully copied tacozip.dll) ||
+            (copy build\release\libtacozip.dll clients\python\tacozip\tacozip.dll && echo Successfully copied libtacozip.dll as tacozip.dll) ||
+            echo ERROR: Failed to copy any DLL files &&
+            echo Listing package directory contents: &&
+            dir clients\python\tacozip &&
+            echo Checking if DLL is readable: &&
+            (type clients\python\tacozip\tacozip.dll >nul 2>&1 && echo tacozip.dll exists and is readable) || echo tacozip.dll not found or not readable
 
           # Test command bypasses __main__.py issue
           CIBW_TEST_COMMAND: python -c "import tacozip; tacozip._self_check(); print('tacozip test passed')"

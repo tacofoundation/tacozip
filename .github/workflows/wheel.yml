@@ -137,21 +137,13 @@ jobs:
           cibuildwheel clients/python --output-dir wheelhouse
           ls -l wheelhouse
 
-      - name: Verify wheel packages native library
+      - name: Verify wheel packages include native library
         shell: bash
         run: |
+          set -euo pipefail
           wheel=$(ls wheelhouse/*.whl | head -n1)
           echo "Inspecting $wheel"
-          python - <<'PY'
-import sys, os, zipfile, glob
-wheel = glob.glob('wheelhouse/*.whl')[0]
-name = 'tacozip.dll' if os.getenv('RUNNER_OS') == 'Windows' else ('libtacozip.dylib' if os.getenv('RUNNER_OS') == 'macOS' else 'libtacozip.so')
-with zipfile.ZipFile(wheel) as z:
-    names = z.namelist()
-    if not any(n.endswith(name) for n in names):
-        raise SystemExit(f"{name} missing from {wheel}")
-print('Found', name, 'in wheel')
-PY
+          python -c "import os,glob,zipfile,sys; w=glob.glob('wheelhouse/*.whl')[0]; n = 'tacozip.dll' if os.getenv('RUNNER_OS')=='Windows' else ('libtacozip.dylib' if os.getenv('RUNNER_OS')=='macOS' else 'libtacozip.so'); import zipfile; z=zipfile.ZipFile(w); names=z.namelist(); z.close(); import sys; sys.exit(0) if any(s.endswith(n) for s in names) else (_ for _ in ()).throw(SystemExit(f'{n} missing from {w}'))"
 
       - name: Upload wheels (artifact)
         uses: actions/upload-artifact@v4

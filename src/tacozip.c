@@ -1,7 +1,7 @@
 /*
  * tacozip.c — High-performance ZIP64 (CIP64) writer with a TACO Ghost supporting up to 7 metadata entries.
  *
- * Version:    0.2.0
+ * Version:    0.3.0
  * Author:     Cesar Aybar (csaybar)
  * Inspired by: Strongly inspired by libzip's implementation details (https://libzip.org), but 
  *      reduced to the essentials for the specific use case: CIP64 + STORE + ghost LFH.
@@ -25,8 +25,17 @@
  *
  */
 
+/* Platform-specific feature detection */
+#if defined(__linux__) || defined(__gnu_linux__)
 #ifndef _GNU_SOURCE
 #define _GNU_SOURCE
+#endif
+#elif defined(__APPLE__) || defined(__MACH__)
+#ifndef _POSIX_C_SOURCE
+#define _POSIX_C_SOURCE 200809L
+#endif
+#elif defined(_WIN32) || defined(_WIN64)
+/* Windows-specific includes handled separately */
 #endif
 
 #ifndef _FILE_OFFSET_BITS
@@ -51,7 +60,7 @@
 #   include <unistd.h>
 #endif
 
-#ifdef __linux__
+#if defined(__linux__) || defined(__gnu_linux__)
 #include <fcntl.h>   /* posix_fallocate */
 #endif
 
@@ -312,7 +321,7 @@ static void try_posix_fallocate_estimate(FILE *fp,
                                          const char * const *arc_files,
                                          size_t num_files)
 {
-#if defined(__linux__)
+#if defined(__linux__) || defined(__gnu_linux__)
     uint64_t sum = TACO_GHOST_SIZE;  /* Updated for new ghost size */
     for (size_t i = 0; i < num_files; i++){
         struct stat st;

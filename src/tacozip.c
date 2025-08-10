@@ -213,10 +213,14 @@ static int push_entry(zipw_t *w, const cd_ent_t *src){
         w->ents = (cd_ent_t*)p;
         w->cap  = nc;
     }
-    cd_ent_t *e = &w->ents[w->n++];
+    /* Only advance the count after all allocations succeed.
+       Otherwise a failed strdup() would leave w->n incremented and
+       the caller would see a partially initialized entry. */
+    cd_ent_t *e = &w->ents[w->n];
     *e = *src;
     e->name = strdup(src->name);
     if (!e->name) return TACOZ_ERR_IO;
+    w->n++;
     return TACOZ_OK;
 }
 

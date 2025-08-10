@@ -59,6 +59,14 @@
 #include <sys/types.h>
 #include <sys/stat.h>
 #include <unistd.h>
+
+#ifdef _WIN32
+#include <io.h>
+#define fileno _fileno
+#else
+#   include <unistd.h>
+#endif
+
 #ifdef __linux__
 #include <fcntl.h>   /* posix_fallocate */
 #endif

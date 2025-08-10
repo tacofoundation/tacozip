@@ -22,7 +22,7 @@ pip install tacozip
 import tacozip
 
 # Create archive with multiple metadata entries
-tacozip.create_multi(
+tacozip.tacozip_create_multi(
     "data.taco.zip",
     ["file1.parquet", "file2.parquet"],
     ["file1.parquet", "file2.parquet"], 
@@ -31,13 +31,13 @@ tacozip.create_multi(
 )
 
 # Read metadata entries
-count, entries = tacozip.read_ghost_multi("data.taco.zip")
+count, entries = tacozip.tacozip_read_ghost_multi("data.taco.zip")
 for i in range(count):
     offset, length = entries[i]
     print(f"Entry {i+1}: offset={offset}, length={length}")
 
 # Update metadata
-tacozip.update_ghost_multi(
+tacozip.tacozip_update_ghost_multi(
     "data.taco.zip",
     [1500, 3000, 0, 0, 0, 0, 0],  # new offsets
     [600,  800,  0, 0, 0, 0, 0]   # new lengths

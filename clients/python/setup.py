@@ -16,7 +16,6 @@ class bdist_wheel(_bdist_wheel):
         super().finalize_options()
         self.root_is_pure = False  # put files under platlib, not purelib
 
-
 class BuildTacozipExt(_build_py):
     """Ensure the compiled tacozip shared library is bundled."""
 
@@ -30,7 +29,7 @@ class BuildTacozipExt(_build_py):
         
         print(f"setup.py: Package directory is: {pkg_dir}")
 
-        # Check if library already exists in package dir (from CIBW_BEFORE_ALL)
+        # Check if library already exists in package dir
         if sys.platform == "win32":
             lib_names = ["tacozip.dll", "libtacozip.dll"]
         elif sys.platform == "darwin":
@@ -46,13 +45,12 @@ class BuildTacozipExt(_build_py):
 
         print("setup.py: Library not found in package, attempting to build or find...")
         
-        # Find project root (where CMakeLists.txt should be)
+        # Find project root - go up from clients/python to find CMakeLists.txt
         search_roots = [
+            Path(__file__).resolve().parents[2],  # tacozip root (clients/python -> clients -> root)
+            Path(__file__).resolve().parents[1],  # clients directory
+            Path(__file__).resolve().parent,      # python directory
             Path.cwd(),
-            Path(__file__).resolve().parent,
-            Path(__file__).resolve().parents[1], 
-            Path(__file__).resolve().parents[2],
-            Path(__file__).resolve().parents[3],
         ]
         
         project_root = None
@@ -121,8 +119,7 @@ class BuildTacozipExt(_build_py):
             if path.exists() and self._try_copy_from_build_dir(path, pkg_dir):
                 return
         
-        # Create a dummy library file as last resort to allow the build to continue
-        # This will cause a runtime error when imported, which is better than a build failure
+        # Create a dummy library file as last resort
         print("setup.py: WARNING: Creating dummy library file - this wheel will not work!")
         if sys.platform == "win32":
             dummy_name = "tacozip.dll"
@@ -173,10 +170,9 @@ def _lib_name():
 def _self_check():
     here = os.path.dirname(__file__)
     name = _lib_name()
-    path = os.path.join(here, name)
+    path = os.path.join(here, "tacozip", name)
     if not os.path.exists(path):
         raise ImportError(f"Native library {name} not found at: {path}")
-
 
 if __name__ == "__main__":
     setup(

@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """
 Pre-build script to ensure the native library is available before wheel building.
-This runs as part of CIBW_BEFORE_BUILD instead of CIBW_BEFORE_ALL.
+Updated for new modular package structure.
 """
 
 import sys
@@ -10,26 +10,69 @@ import shutil
 from pathlib import Path
 import os
 
+def fix_newlines_for_macos():
+    """Fix missing newlines at end of files for Apple Clang compatibility."""
+    print("prebuild.py: Checking newlines for Apple Clang...")
+    
+    # Find project root (2 levels up from clients/python/)
+    current = Path(__file__).parent.parent.parent
+    
+    files_to_fix = [
+        current / "include" / "tacozip.h",
+        current / "src" / "tacozip.c", 
+        current / "include" / "tacozip_config.h.in"
+    ]
+    
+    fixed_count = 0
+    for file_path in files_to_fix:
+        if file_path.exists():
+            try:
+                with open(file_path, 'rb') as f:
+                    content = f.read()
+                
+                if content and not content.endswith(b'\n'):
+                    with open(file_path, 'ab') as f:
+                        f.write(b'\n')
+                    print(f"prebuild.py: Fixed {file_path.name}")
+                    fixed_count += 1
+                else:
+                    print(f"prebuild.py: {file_path.name} already OK")
+            except Exception as e:
+                print(f"prebuild.py: Error with {file_path}: {e}")
+        else:
+            print(f"prebuild.py: Warning - {file_path} not found")
+    
+    print(f"prebuild.py: Fixed {fixed_count} files")
+
 def main():
     print("=== prebuild.py: Starting pre-build process ===")
     
-    # Find project root
-    script_dir = Path(__file__).parent
-    project_root = script_dir
+    # Fix newlines first (critical for macOS)
+    fix_newlines_for_macos()
     
-    # Look for CMakeLists.txt going up the directory tree
-    for i in range(5):  # Go up max 5 levels
-        if (project_root / "CMakeLists.txt").exists():
-            print(f"prebuild.py: Found project root at: {project_root}")
-            break
-        project_root = project_root.parent
-    else:
-        print("prebuild.py: ERROR: Could not find CMakeLists.txt")
-        return 1
+    # Find project root (where CMakeLists.txt should be)
+    # Since we're in clients/python/, go up 2 levels
+    script_dir = Path(__file__).parent
+    project_root = script_dir.parent.parent
+    
+    if not (project_root / "CMakeLists.txt").exists():
+        # Try alternative paths
+        for i in range(5):
+            candidate = script_dir
+            for _ in range(i):
+                candidate = candidate.parent
+            if (candidate / "CMakeLists.txt").exists():
+                project_root = candidate
+                break
+        else:
+            print("prebuild.py: ERROR: Could not find CMakeLists.txt")
+            return 1
+    
+    print(f"prebuild.py: Found project root at: {project_root}")
     
     # Set up paths
     build_dir = project_root / "build" / "release"
-    package_dir = script_dir / "tacozip"
+    package_dir = script_dir / "tacozip"  # Main package directory
     
     print(f"prebuild.py: Project root: {project_root}")
     print(f"prebuild.py: Build directory: {build_dir}")

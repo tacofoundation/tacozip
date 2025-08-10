@@ -1,23 +1,23 @@
 [build-system]
-requires = ["setuptools>=61.0", "wheel", "setuptools-scm"]
+requires = ["setuptools>=77.0.0", "wheel"]
 build-backend = "setuptools.build_meta"
 
 [project]
 name = "tacozip"
-version = "0.3.0"
+version = "0.4.0"
 description = "TACO ZIP: ZIP64 archive with TACO Ghost supporting up to 7 metadata entries"
 readme = "README.md"
-license = {text = "MIT"}
+license = "MIT"
+license-files = ["LICENSE*", "COPYING*"]
 authors = [
-    {name = "Cesar Aybar", email = "csaybar@gmail.com"}
+    { name = "Cesar Aybar", email = "csaybar@gmail.com" }
 ]
 keywords = ["zip", "zip64", "compression", "archive", "parquet", "metadata"]
 classifiers = [
     "Development Status :: 4 - Beta",
     "Intended Audience :: Developers",
-    "License :: OSI Approved :: MIT License",
     "Operating System :: POSIX :: Linux",
-    "Operating System :: MacOS :: MacOS X", 
+    "Operating System :: MacOS :: MacOS X",
     "Operating System :: Microsoft :: Windows",
     "Programming Language :: C",
     "Programming Language :: Python :: 3",
@@ -42,9 +42,12 @@ dev = [
 ]
 
 [project.urls]
-Homepage = "https://github.com/csaybar/tacozip"
-Repository = "https://github.com/csaybar/tacozip"
-Issues = "https://github.com/csaybar/tacozip/issues"
+Homepage = "https://tacofoundation.github.io/"
+Repository = "https://github.com/tacofoundation/tacozip"
+Issues = "https://github.com/tacofoundation/tacozip/issues"
+
+[project.scripts]
+tacozip = "tacozip.__main__:main"
 
 [tool.setuptools]
 packages = ["tacozip"]

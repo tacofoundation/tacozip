@@ -4,8 +4,11 @@ version = "0.1.0"
 requires-python = ">=3.9"
 description = "Fast ZIP-like container with ghost metadata"
 readme = "README.md"
+license = { file = "LICENSE" }
+authors = [{ name = "Cesar Aybar" }]
 
 [tool.setuptools]
+package-dir = {"" = "."}
 include-package-data = true
 
 [tool.setuptools.packages.find]
@@ -13,7 +16,7 @@ where = ["."]
 include = ["tacozip"]
 
 [tool.setuptools.package-data]
-tacozip = ["libtacozip*.so", "libtacozip*.dylib", "libtacozip*.dll", "tacozip.dll"]
+tacozip = ["libtacozip.*", "tacozip.dll"]
 
 #[tool.scikit-build]
 #wheel.packages = ["clients/python"]

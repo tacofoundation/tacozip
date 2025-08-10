@@ -23,7 +23,7 @@ jobs:
           fetch-depth: 0
           clean: true
 
-      - name: Clean any prebuilt native libs
+      - name: Clean any prebuilt native libs in package
         shell: bash
         run: rm -f clients/python/tacozip/libtacozip.* clients/python/tacozip/tacozip.dll || true
 
@@ -32,13 +32,14 @@ jobs:
         with:
           python-version: '3.11'
 
-      # --- QEMU for aarch64 Linux wheels ---
+      # Required for aarch64 Linux wheels on x86_64 runners
       - name: Set up QEMU (arm64)
         if: runner.os == 'Linux'
         uses: docker/setup-qemu-action@v3
         with:
           platforms: arm64
 
+      # Quick smoke test that the arm64 container can run
       - name: Verify arm64 container runs
         if: runner.os == 'Linux'
         run: docker run --rm --platform linux/arm64 quay.io/pypa/manylinux2014_aarch64:2025.04.19-1 uname -m
@@ -51,16 +52,18 @@ jobs:
       - name: Build wheels with cibuildwheel
         shell: bash
         env:
+          # Python versions to build
           CIBW_BUILD: "cp39-* cp310-* cp311-* cp312-* cp313-*"
+          # Skip PyPy and old 32-bit images
           CIBW_SKIP: "pp* *-win32 *-manylinux_i686"
 
-          # ===== Linux arches =====
+          # ===== Linux =====
           CIBW_ARCHS_LINUX: "x86_64 aarch64"
           CIBW_MANYLINUX_X86_64_IMAGE: "manylinux2014"
           CIBW_MANYLINUX_AARCH64_IMAGE: "manylinux2014"
           CIBW_REPAIR_WHEEL_COMMAND_LINUX: "auditwheel repair -w {dest_dir} {wheel}"
 
-          # ===== macOS universal2 =====
+          # ===== macOS (universal2) =====
           CIBW_ARCHS_MACOS: "universal2"
           CIBW_ENVIRONMENT_MACOS: |
             MACOSX_DEPLOYMENT_TARGET=11.0
@@ -74,6 +77,8 @@ jobs:
           CIBW_ARCHS_WINDOWS: "AMD64"
 
           # ===== Build native lib (stage into package) =====
+          # Build the shared library with CMake and copy it into clients/python/tacozip/
+          # Normalize the filename so setuptools package_data picks it reliably.
           CIBW_BEFORE_ALL_LINUX: >
             bash -exc "
               python -m pip install cmake ninja &&
@@ -82,14 +87,10 @@ jobs:
               cp -f README.md clients/python/ || true &&
               cmake -S . -B build/release -G Ninja -DCMAKE_BUILD_TYPE=Release -DTACOZIP_ENABLE_IPO=OFF &&
               cmake --build build/release -j &&
-              # copia la SONAME real si aplica, pero siempre provee libtacozip.so
-              if [ -f build/release/libtacozip.so ]; then
-                cp build/release/libtacozip.so clients/python/tacozip/
-              elif [ -f build/release/libtacozip.so.0.2.0 ]; then
-                cp build/release/libtacozip.so.0.2.0 clients/python/tacozip/libtacozip.so
-              else
-                echo 'libtacozip.so not found' >&2; exit 2
-              fi
+              so_path=$(find build/release -maxdepth 2 -type f -name 'libtacozip*.so*' | head -n1) &&
+              echo 'Found SO:' ${so_path:-NONE} &&
+              test -n \"$so_path\" || (echo 'libtacozip.so not found' >&2; exit 2) &&
+              cp \"$so_path\" clients/python/tacozip/libtacozip.so
             "
           CIBW_BEFORE_ALL_MACOS: >
             bash -exc "
@@ -103,7 +104,10 @@ jobs:
                 -DCMAKE_OSX_DEPLOYMENT_TARGET=${MACOSX_DEPLOYMENT_TARGET} \
                 -DCMAKE_OSX_ARCHITECTURES='x86_64;arm64' &&
               cmake --build build/release -j &&
-              cp build/release/libtacozip.dylib clients/python/tacozip/
+              dylib_path=$(find build/release -maxdepth 2 -type f -name 'libtacozip*.dylib' | head -n1) &&
+              echo 'Found DYLIB:' ${dylib_path:-NONE} &&
+              test -n \"$dylib_path\" || (echo 'libtacozip.dylib not found' >&2; exit 2) &&
+              cp \"$dylib_path\" clients/python/tacozip/libtacozip.dylib
             "
           CIBW_BEFORE_ALL_WINDOWS: >
             bash -exc "
@@ -113,19 +117,21 @@ jobs:
               cp -f README.md clients/python/ || true &&
               cmake -S . -B build/release -G Ninja -DCMAKE_BUILD_TYPE=Release &&
               cmake --build build/release -j &&
-              # Copy dll from possible locations
-              cp build/release/tacozip.dll clients/python/tacozip/ 2>/dev/null || \
-              cp build/release/Release/tacozip.dll clients/python/tacozip/
+              dll_path=$( (find build/release -maxdepth 2 -type f -name 'tacozip*.dll' | head -n1) || true ) &&
+              echo 'Found DLL:' ${dll_path:-NONE} &&
+              test -n \"$dll_path\" || (echo 'tacozip.dll not found' >&2; exit 2) &&
+              cp \"$dll_path\" clients/python/tacozip/tacozip.dll
             "
         run: |
-          # Precheck: la lib nativa debe existir antes de build
+          # Precheck: the normalized shared library must be present before building wheels
+          echo "Package contents before wheel build:"
           ls -l clients/python/tacozip || true
           if [ "$RUNNER_OS" = "Windows" ]; then
-            powershell -Command "if (!(Test-Path 'clients/python/tacozip/tacozip.dll')) { Write-Error 'Missing tacozip.dll' ; exit 1 }"
+            powershell -Command "if (!(Test-Path 'clients/python/tacozip/tacozip.dll')) { Get-ChildItem clients/python/tacozip | ForEach-Object { Write-Host $_.FullName }; Write-Error 'Missing tacozip.dll' ; exit 1 }"
           elif [ "$RUNNER_OS" = "macOS" ]; then
-            test -f clients/python/tacozip/libtacozip.dylib || (echo "Missing libtacozip.dylib" && exit 1)
+            test -f clients/python/tacozip/libtacozip.dylib || (echo 'Missing libtacozip.dylib' && ls -l clients/python/tacozip && exit 1)
           else
-            test -f clients/python/tacozip/libtacozip.so || (echo "Missing libtacozip.so" && exit 1)
+            test -f clients/python/tacozip/libtacozip.so || (echo 'Missing libtacozip.so' && ls -l clients/python/tacozip && exit 1)
           fi
 
           cibuildwheel clients/python --output-dir wheelhouse

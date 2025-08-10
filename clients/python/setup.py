@@ -1,7 +1,7 @@
 import sys
 from pathlib import Path
 import shutil
-import os, sys
+import os
 
 from setuptools import setup, Distribution
 from setuptools.command.build_py import build_py as _build_py
@@ -25,10 +25,29 @@ class BuildTacozipExt(_build_py):
         self.copy_built_library()
 
     def copy_built_library(self):
-        root = Path(__file__).resolve().parents[2]
-        build_dir = root / "build" / "release"
         pkg_dir = Path(self.get_package_dir("tacozip"))
         pkg_dir.mkdir(parents=True, exist_ok=True)
+
+        # Check if library already exists in package dir (from CIBW_BEFORE_ALL)
+        if sys.platform == "win32":
+            lib_names = ["tacozip.dll", "libtacozip.dll"]
+        elif sys.platform == "darwin":
+            lib_names = ["libtacozip.dylib"]
+        else:
+            lib_names = ["libtacozip.so"]
+
+        # First check if library is already in the package directory
+        for lib_name in lib_names:
+            if (pkg_dir / lib_name).exists():
+                print(f"Found library already in package: {pkg_dir / lib_name}")
+                return
+
+        # If not found in package, try to find in build directory
+        root = Path(__file__).resolve().parents[2]
+        build_dir = root / "build" / "release"
+        
+        if not build_dir.exists():
+            raise FileNotFoundError(f"Build directory not found: {build_dir}")
 
         if sys.platform == "win32":
             patterns = ["tacozip*.dll", "libtacozip*.dll"]
@@ -44,11 +63,14 @@ class BuildTacozipExt(_build_py):
             cand = list(build_dir.glob(f"**/{pat}"))
             if cand:
                 src = cand[0]
-                shutil.copy2(src, pkg_dir / dest_name)
+                dest = pkg_dir / dest_name
+                print(f"Copying library: {src} -> {dest}")
+                shutil.copy2(src, dest)
                 return
 
         raise FileNotFoundError(
-            f"tacozip shared library not found in {build_dir}"
+            f"tacozip shared library not found in {build_dir}. "
+            f"Expected one of: {patterns}"
         )
 
 def _lib_name():

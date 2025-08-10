@@ -25,10 +25,36 @@ def _load_shared():
         names = ["libtacozip.so"]
 
     here = Path(__file__).parent
+    
+    # First try to find library in the package directory
     for n in names:
         p = here / n
         if p.exists():
-            return ctypes.CDLL(str(p))
+            try:
+                return ctypes.CDLL(str(p))
+            except OSError as e:
+                print(f"Failed to load {p}: {e}")
+                continue
+
+    # On Windows, also try some common variations
+    if plat == "win32":
+        # Try without extension
+        for base in ["tacozip", "libtacozip"]:
+            p = here / f"{base}.dll"
+            if p.exists():
+                try:
+                    return ctypes.CDLL(str(p))
+                except OSError as e:
+                    print(f"Failed to load {p}: {e}")
+                    continue
+    
+    # Debug: list all files in the package directory
+    print(f"Available files in {here}:")
+    if here.exists():
+        for item in here.iterdir():
+            print(f"  - {item.name}")
+    else:
+        print(f"  Package directory {here} does not exist!")
 
     # Fallback to system search paths (LD_LIBRARY_PATH/PATH)
     for envdir in os.getenv("LD_LIBRARY_PATH", "").split(":") + os.getenv("PATH", "").split(os.pathsep):
@@ -36,9 +62,13 @@ def _load_shared():
             for n in names:
                 cand = Path(envdir) / n
                 if cand.exists():
-                    return ctypes.CDLL(str(cand))
+                    try:
+                        return ctypes.CDLL(str(cand))
+                    except OSError as e:
+                        print(f"Failed to load {cand}: {e}")
+                        continue
 
-    raise OSError("tacozip shared library not found")
+    raise OSError(f"tacozip shared library not found. Searched for: {names}")
 
 _lib = _load_shared()
 

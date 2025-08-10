@@ -78,7 +78,6 @@ jobs:
               rm -rf build/release &&
               mkdir -p clients/python/tacozip &&
               cp -f README.md clients/python/ || true &&
-              cp -f LICENSE clients/python/ || true &&
               cmake -S . -B build/release -G Ninja -DCMAKE_BUILD_TYPE=Release -DTACOZIP_ENABLE_IPO=OFF &&
               cmake --build build/release -j &&
               ls -la build/release/ &&
@@ -97,7 +96,6 @@ jobs:
               rm -rf build/release
               mkdir -p clients/python/tacozip
               cp -f README.md clients/python/ || true
-              cp -f LICENSE clients/python/ || true
               cmake -S . -B build/release -G Ninja \
                 -DCMAKE_BUILD_TYPE=Release \
                 -DTACOZIP_ENABLE_IPO=OFF \
@@ -114,16 +112,20 @@ jobs:
           CIBW_BEFORE_ALL_WINDOWS: >
             python -m pip install cmake ninja &&
             if exist build rmdir /s /q build &&
-            mkdir clients\python\tacozip 2>nul &&
+            if not exist clients\python\tacozip mkdir clients\python\tacozip &&
             echo Building tacozip library... &&
             cmake -S . -B build\release -G Ninja -DCMAKE_BUILD_TYPE=Release -DTACOZIP_ENABLE_IPO=OFF &&
             cmake --build build\release -j &&
             echo Build complete, listing build directory: &&
             dir build\release &&
+            echo Looking for DLL files... &&
+            dir build\release\*.dll 2>nul &&
             echo Copying DLL to package directory... &&
-            (copy build\release\tacozip.dll clients\python\tacozip\tacozip.dll || copy build\release\libtacozip.dll clients\python\tacozip\tacozip.dll || echo WARNING: No DLL found) &&
+            (copy build\release\tacozip.dll clients\python\tacozip\ && echo Copied tacozip.dll) || 
+            (copy build\release\libtacozip.dll clients\python\tacozip\tacozip.dll && echo Copied libtacozip.dll as tacozip.dll) || 
+            echo ERROR: No DLL found in build directory &&
             echo Final package contents: &&
-            dir clients\python\tacozip
+            dir clients\python\tacozip 2>nul
 
           # Test command bypasses __main__.py issue
           CIBW_TEST_COMMAND: python -c "import tacozip; tacozip._self_check(); print('tacozip test passed')"

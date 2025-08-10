@@ -94,22 +94,21 @@ jobs:
 
           CIBW_BEFORE_ALL_MACOS: |
             bash -exc "
-              python -m pip install cmake ninja &&
-              rm -rf build/release &&
-              mkdir -p clients/python/tacozip &&
-              cp -f README.md clients/python/ || true &&
+              python -m pip install cmake ninja
+              rm -rf build/release
+              mkdir -p clients/python/tacozip
+              cp -f README.md clients/python/ || true
               cmake -S . -B build/release -G Ninja \
                 -DCMAKE_BUILD_TYPE=Release \
                 -DTACOZIP_ENABLE_IPO=OFF \
                 -DCMAKE_OSX_DEPLOYMENT_TARGET=${MACOSX_DEPLOYMENT_TARGET} \
-                -DCMAKE_OSX_ARCHITECTURES='x86_64;arm64' &&
-              cmake --build build/release -j &&
-              ls -l build/release ||
-              true &&
-              lib=$(ls -1 build/release/libtacozip*.dylib 2>/dev/null | head -n1 || true) &&
+                -DCMAKE_OSX_ARCHITECTURES='x86_64;arm64'
+              cmake --build build/release -j
+              ls -l build/release || true
+              lib=\$(find build/release -name 'libtacozip.dylib' | head -n 1)
               echo \"Picked DYLIB: \${lib:-NONE}\"
-              test -n \"$lib\" || (echo 'libtacozip.dylib not found' >&2; exit 2)
-              cp \"$lib\" clients/python/tacozip/libtacozip.dylib
+              test -n \"\$lib\" || (echo 'libtacozip.dylib not found' >&2; exit 2)
+              cp \"\$lib\" clients/python/tacozip/libtacozip.dylib
             "
 
           CIBW_BEFORE_ALL_WINDOWS: |

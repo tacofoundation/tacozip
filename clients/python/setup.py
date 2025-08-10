@@ -42,13 +42,29 @@ class BuildTacozipExt(_build_py):
                 print(f"Found library already in package: {pkg_dir / lib_name}")
                 return
 
-        # If not found in package, try to find in build directory
-        root = Path(__file__).resolve().parents[2]
-        build_dir = root / "build" / "release"
+        # Multiple search strategies for build directory
+        search_paths = [
+            Path.cwd() / "build" / "release",
+            Path(__file__).resolve().parent / "build" / "release", 
+            Path(__file__).resolve().parents[1] / "build" / "release",
+            Path(__file__).resolve().parents[2] / "build" / "release",
+            Path(__file__).resolve().parents[3] / "build" / "release",
+        ]
         
-        if not build_dir.exists():
-            raise FileNotFoundError(f"Build directory not found: {build_dir}")
+        build_dir = None
+        for path in search_paths:
+            if path.exists():
+                build_dir = path
+                print(f"Found build directory at: {build_dir}")
+                break
+        
+        if not build_dir:
+            print("Searched paths:")
+            for path in search_paths:
+                print(f"  - {path} (exists: {path.exists()})")
+            raise FileNotFoundError(f"Build directory not found in any of the expected locations")
 
+        # Platform-specific library search patterns
         if sys.platform == "win32":
             patterns = ["tacozip*.dll", "libtacozip*.dll"]
             dest_name = "tacozip.dll"

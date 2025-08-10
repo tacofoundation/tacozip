@@ -108,16 +108,17 @@ jobs:
               test -n \"\$lib\" || (echo 'libtacozip.dylib not found' >&2; exit 2)
               cp \"\$lib\" clients/python/tacozip/libtacozip.dylib
             "
-
+          
           CIBW_BEFORE_ALL_WINDOWS: |
             python -m pip install cmake ninja
             if exist build\release rmdir /s /q build\release
-            mkdir clients\python\tacozip
+            if not exist clients\python\tacozip mkdir clients\python\tacozip
             if exist README.md copy README.md clients\python\
-            cmake -S . -B build/release -G Ninja -DCMAKE_BUILD_TYPE=Release
-            cmake --build build/release -j
+            if exist LICENSE copy LICENSE clients\python\
+            cmake -S . -B build\release -G Ninja -DCMAKE_BUILD_TYPE=Release -DTACOZIP_ENABLE_IPO=OFF
+            cmake --build build\release -j
             dir build\release
-            if exist build\release\tacozip.dll copy build\release\tacozip.dll clients\python\tacozip\tacozip.dll
+            for %%f in (build\release\tacozip.dll build\release\libtacozip.dll) do if exist "%%f" copy "%%f" clients\python\tacozip\
 
           # Test command bypasses __main__.py issue
           CIBW_TEST_COMMAND: python -c "import tacozip; tacozip._self_check(); print('tacozip test passed')"

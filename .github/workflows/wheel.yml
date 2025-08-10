@@ -73,14 +73,17 @@ jobs:
 
           # ===== Build native lib (stage into package) =====
           # Build and then robustly stage the produced library into clients/python/tacozip/
+
           CIBW_BEFORE_ALL_LINUX: |
             bash -exc "
               python -m pip install cmake ninja &&
               rm -rf build/release &&
-              mkdir -p clients/python/tacozip && : > clients/python/tacozip/__init__.py &&
+              mkdir -p clients/python/tacozip &&
               cp -f README.md clients/python/ || true &&
               cmake -S . -B build/release -G Ninja -DCMAKE_BUILD_TYPE=Release -DTACOZIP_ENABLE_IPO=OFF &&
               cmake --build build/release -j &&
+              ls -l build/release ||
+              true &&
               lib=''
               if [ -f build/release/libtacozip.so ]; then lib=build/release/libtacozip.so; fi
               if [ -z \"$lib\" ]; then lib=$(ls -1 build/release/libtacozip*.so* 2>/dev/null | head -n1 || true); fi
@@ -93,7 +96,7 @@ jobs:
             bash -exc "
               python -m pip install cmake ninja &&
               rm -rf build/release &&
-              mkdir -p clients/python/tacozip && : > clients/python/tacozip/__init__.py &&
+              mkdir -p clients/python/tacozip &&
               cp -f README.md clients/python/ || true &&
               cmake -S . -B build/release -G Ninja \
                 -DCMAKE_BUILD_TYPE=Release \
@@ -101,24 +104,23 @@ jobs:
                 -DCMAKE_OSX_DEPLOYMENT_TARGET=${MACOSX_DEPLOYMENT_TARGET} \
                 -DCMAKE_OSX_ARCHITECTURES='x86_64;arm64' &&
               cmake --build build/release -j &&
-              lib=''
-              if [ -f build/release/libtacozip.dylib ]; then lib=build/release/libtacozip.dylib; fi
-              if [ -z \"$lib\" ]; then lib=$(ls -1 build/release/libtacozip*.dylib 2>/dev/null | head -n1 || true); fi
+              ls -l build/release ||
+              true &&
+              lib=$(ls -1 build/release/libtacozip*.dylib 2>/dev/null | head -n1 || true) &&
               echo \"Picked DYLIB: \${lib:-NONE}\"
               test -n \"$lib\" || (echo 'libtacozip.dylib not found' >&2; exit 2)
               cp \"$lib\" clients/python/tacozip/libtacozip.dylib
             "
 
-          # cibuildwheel runs Windows hooks in PowerShell
           CIBW_BEFORE_ALL_WINDOWS: |
             python -m pip install cmake ninja; `
             if (Test-Path build\release) { Remove-Item -Recurse -Force build\release }; `
             New-Item -ItemType Directory -Force clients\python\tacozip | Out-Null; `
-            if (!(Test-Path clients\python\tacozip\__init__.py)) { '' | Out-File -Encoding ascii clients\python\tacozip\__init__.py }; `
             if (Test-Path README.md) { Copy-Item README.md clients\python\ -Force }; `
             cmake -S . -B build/release -G Ninja -DCMAKE_BUILD_TYPE=Release; `
             cmake --build build/release -j; `
-            $dll = Get-ChildItem -Path build/release -Recurse -Filter tacozip*.dll | Select-Object -First 1; `
+            Get-ChildItem build\release | Format-List Name,Length; `
+            $dll = Get-ChildItem -Path build\release -Recurse -Filter tacozip*.dll | Select-Object -First 1; `
             if (-not $dll) { Write-Error 'tacozip.dll not found'; exit 2 }; `
             Copy-Item $dll.FullName clients\python\tacozip\tacozip.dll -Force
 

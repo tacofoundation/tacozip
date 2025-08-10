@@ -1,3 +1,6 @@
+# Include the prebuild script
+include prebuild.py
+
 # Include native libraries for tacozip
 recursive-include tacozip *.so *.so.* *.dylib *.dll
 global-include *.dll

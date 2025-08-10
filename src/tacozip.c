@@ -1,9 +1,7 @@
 /*
  * tacozip.c — High-performance ZIP64 (CIP64) writer with a TACO Ghost supporting up to 7 metadata entries.
  *
- * Version:    0.3.0
- * Author:     Cesar Aybar (csaybar)
- * Inspired by: Strongly inspired by libzip's implementation details (https://libzip.org), but 
+ * Inspired by: libzip's implementation details (https://libzip.org), but 
  *      reduced to the essentials for the specific use case: CIP64 + STORE + ghost LFH.
  *
  * Overview:

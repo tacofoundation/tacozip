@@ -25,25 +25,23 @@ jobs:
 
       - name: Clean any prebuilt native libs
         shell: bash
-        run: rm -f clients/python/tacozip/libtacozip.* || true
+        run: rm -f clients/python/tacozip/libtacozip.* clients/python/tacozip/tacozip.dll || true
 
       - name: Set up Python
         uses: actions/setup-python@v5
         with:
           python-version: '3.11'
 
-      # --- REQUIRED for aarch64 Linux builds on x86_64 runners ---
+      # --- QEMU for aarch64 Linux wheels ---
       - name: Set up QEMU (arm64)
         if: runner.os == 'Linux'
         uses: docker/setup-qemu-action@v3
         with:
           platforms: arm64
 
-      # Optional smoke test so we fail fast if binfmt isn’t registered
       - name: Verify arm64 container runs
         if: runner.os == 'Linux'
-        run: |
-          docker run --rm --platform linux/arm64 quay.io/pypa/manylinux2014_aarch64:2025.04.19-1 uname -m
+        run: docker run --rm --platform linux/arm64 quay.io/pypa/manylinux2014_aarch64:2025.04.19-1 uname -m
 
       - name: Install cibuildwheel
         run: |
@@ -84,7 +82,14 @@ jobs:
               cp -f README.md clients/python/ || true &&
               cmake -S . -B build/release -G Ninja -DCMAKE_BUILD_TYPE=Release -DTACOZIP_ENABLE_IPO=OFF &&
               cmake --build build/release -j &&
-              cp build/release/libtacozip.so clients/python/tacozip/
+              # copia la SONAME real si aplica, pero siempre provee libtacozip.so
+              if [ -f build/release/libtacozip.so ]; then
+                cp build/release/libtacozip.so clients/python/tacozip/
+              elif [ -f build/release/libtacozip.so.0.2.0 ]; then
+                cp build/release/libtacozip.so.0.2.0 clients/python/tacozip/libtacozip.so
+              else
+                echo 'libtacozip.so not found' >&2; exit 2
+              fi
             "
           CIBW_BEFORE_ALL_MACOS: >
             bash -exc "
@@ -113,6 +118,16 @@ jobs:
               cp build/release/Release/tacozip.dll clients/python/tacozip/
             "
         run: |
+          # Precheck: la lib nativa debe existir antes de build
+          ls -l clients/python/tacozip || true
+          if [ "$RUNNER_OS" = "Windows" ]; then
+            powershell -Command "if (!(Test-Path 'clients/python/tacozip/tacozip.dll')) { Write-Error 'Missing tacozip.dll' ; exit 1 }"
+          elif [ "$RUNNER_OS" = "macOS" ]; then
+            test -f clients/python/tacozip/libtacozip.dylib || (echo "Missing libtacozip.dylib" && exit 1)
+          else
+            test -f clients/python/tacozip/libtacozip.so || (echo "Missing libtacozip.so" && exit 1)
+          fi
+
           cibuildwheel clients/python --output-dir wheelhouse
           ls -l wheelhouse
 

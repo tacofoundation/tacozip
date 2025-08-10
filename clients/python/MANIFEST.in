@@ -1,5 +1,5 @@
 # Include native libraries for tacozip
 recursive-include tacozip *.so *.so.* *.dylib *.dll
 
-# Include README file
 include README.md
+include LICENSE

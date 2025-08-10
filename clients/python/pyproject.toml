@@ -15,25 +15,22 @@ include = ["tacozip"]
 [tool.setuptools.package-data]
 tacozip = ["libtacozip*.so", "libtacozip*.dylib", "libtacozip*.dll", "tacozip.dll"]
 
-[tool.scikit-build]
-wheel.packages = ["clients/python"]
-editable.mode = "redirect"
-sdist.include = [
-  "CMakeLists.txt",
-  "src/**",
-  "include/**",
-  "cmake/**",
-  "clients/python/**",
-  "README.md",
-  "LICENSE",
-]
+#[tool.scikit-build]
+#wheel.packages = ["clients/python"]
+#editable.mode = "redirect"
+#sdist.include = [
+#  "CMakeLists.txt",
+#  "src/**",
+#  "include/**",
+#  "cmake/**",
+#  "clients/python/**",
+#  "README.md",
+#  "LICENSE",
+#]
 
-
-[tool.scikit-build.cmake]
-source-dir = "../.."
+#[tool.scikit-build.cmake]
+#source-dir = "../.."
 
 [build-system]
-requires = [
-  "scikit-build-core>=0.9"
-]
-build-backend = "scikit_build_core.build"
+requires = ["setuptools>=68", "wheel"]
+build-backend = "setuptools.build_meta"

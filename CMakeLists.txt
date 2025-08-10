@@ -10,10 +10,15 @@ cmake_minimum_required(VERSION 3.15)
 #   cmake --install --preset release
 # -----------------------------------------------------------------------------
 project(tacozip
-  VERSION 0.1.0
+  VERSION 0.2.0
   LANGUAGES C
   DESCRIPTION "TACO ZIP: ZIP64 archive with fixed 64-byte ghost LFH"
 )
+
+# Export all symbols on Windows if no .def is provided (helps produce tacozip.dll)
+if(WIN32)
+  set(CMAKE_WINDOWS_EXPORT_ALL_SYMBOLS ON)
+endif()
 
 # ----------------------------- sensible defaults -----------------------------
 if(NOT CMAKE_BUILD_TYPE AND NOT CMAKE_CONFIGURATION_TYPES)
@@ -162,60 +167,75 @@ if(TACOZIP_BUILD_STATIC)
 endif()
 
 # --------------------------------- install -----------------------------------
-install(TARGETS tacozip
-  EXPORT tacozip-targets
-  RUNTIME DESTINATION ${CMAKE_INSTALL_BINDIR}
-  LIBRARY DESTINATION ${CMAKE_INSTALL_LIBDIR}
-  ARCHIVE DESTINATION ${CMAKE_INSTALL_LIBDIR}
-  INCLUDES DESTINATION ${CMAKE_INSTALL_INCLUDEDIR}
-)
-if(TACOZIP_BUILD_STATIC)
-  install(TARGETS tacozip_static
+# Split install logic: system-wide install vs. wheel (scikit-build) install.
+# This avoids double-installing the same target when SKBUILD is defined.
+
+if(NOT DEFINED SKBUILD)
+  # ---- System-wide installation (headers, libs, CMake package, pkg-config) ----
+  install(TARGETS tacozip
     EXPORT tacozip-targets
+    RUNTIME DESTINATION ${CMAKE_INSTALL_BINDIR}
+    LIBRARY DESTINATION ${CMAKE_INSTALL_LIBDIR}
     ARCHIVE DESTINATION ${CMAKE_INSTALL_LIBDIR}
     INCLUDES DESTINATION ${CMAKE_INSTALL_INCLUDEDIR}
   )
+  if(TACOZIP_BUILD_STATIC)
+    install(TARGETS tacozip_static
+      EXPORT tacozip-targets
+      ARCHIVE DESTINATION ${CMAKE_INSTALL_LIBDIR}
+      INCLUDES DESTINATION ${CMAKE_INSTALL_INCLUDEDIR}
+    )
+  endif()
+
+  install(DIRECTORY include/ DESTINATION ${CMAKE_INSTALL_INCLUDEDIR}
+          FILES_MATCHING PATTERN "tacozip.h")
+  install(FILES
+    ${CMAKE_CURRENT_BINARY_DIR}/generated/tacozip_config.h
+    DESTINATION ${CMAKE_INSTALL_INCLUDEDIR}
+  )
+
+  # CMake package for find_package(tacozip)
+  install(EXPORT tacozip-targets
+    NAMESPACE tacozip::
+    DESTINATION ${CMAKE_INSTALL_LIBDIR}/cmake/tacozip
+  )
+
+  include(CMakePackageConfigHelpers)
+  write_basic_package_version_file(
+    "${CMAKE_CURRENT_BINARY_DIR}/tacozipConfigVersion.cmake"
+    VERSION ${PROJECT_VERSION}
+    COMPATIBILITY SameMajorVersion
+  )
+  file(WRITE "${CMAKE_CURRENT_BINARY_DIR}/tacozipConfig.cmake"
+  "include(\"\${CMAKE_CURRENT_LIST_DIR}/tacozip-targets.cmake\")\n")
+  install(FILES
+    "${CMAKE_CURRENT_BINARY_DIR}/tacozipConfig.cmake"
+    "${CMAKE_CURRENT_BINARY_DIR}/tacozipConfigVersion.cmake"
+    DESTINATION ${CMAKE_INSTALL_LIBDIR}/cmake/tacozip
+  )
+
+  # pkg-config (.pc) for non-CMake consumers
+  set(prefix ${CMAKE_INSTALL_PREFIX})
+  set(exec_prefix "\${prefix}")
+  set(libdir "\${prefix}/${CMAKE_INSTALL_LIBDIR}")
+  set(includedir "\${prefix}/${CMAKE_INSTALL_INCLUDEDIR}")
+  configure_file(
+    ${CMAKE_CURRENT_SOURCE_DIR}/cmake/tacozip.pc.in
+    ${CMAKE_CURRENT_BINARY_DIR}/tacozip.pc
+    @ONLY
+  )
+  install(FILES ${CMAKE_CURRENT_BINARY_DIR}/tacozip.pc
+          DESTINATION ${CMAKE_INSTALL_LIBDIR}/pkgconfig)
+
+else()
+  # ---- Wheel build via scikit-build: install binary into the Python package ----
+  # NOTE: Do not prefix with "python/". The wheel root will contain "tacozip/" already.
+  install(TARGETS tacozip
+    RUNTIME DESTINATION tacozip   # Windows (.dll)
+    LIBRARY DESTINATION tacozip   # Linux/macOS (.so/.dylib)
+    ARCHIVE DESTINATION tacozip
+  )
 endif()
-
-install(DIRECTORY include/ DESTINATION ${CMAKE_INSTALL_INCLUDEDIR}
-        FILES_MATCHING PATTERN "tacozip.h")
-install(FILES
-  ${CMAKE_CURRENT_BINARY_DIR}/generated/tacozip_config.h
-  DESTINATION ${CMAKE_INSTALL_INCLUDEDIR}
-)
-
-# CMake package for find_package(tacozip)
-install(EXPORT tacozip-targets
-  NAMESPACE tacozip::
-  DESTINATION ${CMAKE_INSTALL_LIBDIR}/cmake/tacozip
-)
-
-include(CMakePackageConfigHelpers)
-write_basic_package_version_file(
-  "${CMAKE_CURRENT_BINARY_DIR}/tacozipConfigVersion.cmake"
-  VERSION ${PROJECT_VERSION}
-  COMPATIBILITY SameMajorVersion
-)
-file(WRITE "${CMAKE_CURRENT_BINARY_DIR}/tacozipConfig.cmake"
-"include(\"\${CMAKE_CURRENT_LIST_DIR}/tacozip-targets.cmake\")\n")
-install(FILES
-  "${CMAKE_CURRENT_BINARY_DIR}/tacozipConfig.cmake"
-  "${CMAKE_CURRENT_BINARY_DIR}/tacozipConfigVersion.cmake"
-  DESTINATION ${CMAKE_INSTALL_LIBDIR}/cmake/tacozip
-)
-
-# pkg-config (.pc) for non-CMake consumers
-set(prefix ${CMAKE_INSTALL_PREFIX})
-set(exec_prefix "\${prefix}")
-set(libdir "\${prefix}/${CMAKE_INSTALL_LIBDIR}")
-set(includedir "\${prefix}/${CMAKE_INSTALL_INCLUDEDIR}")
-configure_file(
-  ${CMAKE_CURRENT_SOURCE_DIR}/cmake/tacozip.pc.in
-  ${CMAKE_CURRENT_BINARY_DIR}/tacozip.pc
-  @ONLY
-)
-install(FILES ${CMAKE_CURRENT_BINARY_DIR}/tacozip.pc
-        DESTINATION ${CMAKE_INSTALL_LIBDIR}/pkgconfig)
 
 # Build summary (helps users confirm toggles)
 message(STATUS "==== tacozip build summary ====")
@@ -230,4 +250,5 @@ message(STATUS "IPO/LTO                : ${TACOZIP_ENABLE_IPO}")
 message(STATUS "Sanitizers             : ${TACOZIP_ENABLE_SANITIZERS}")
 message(STATUS "posix_fallocate()      : ${TACOZ_HAVE_POSIX_FALLOCATE}")
 message(STATUS "Install prefix         : ${CMAKE_INSTALL_PREFIX}")
+message(STATUS "SKBUILD defined        : $<IF:$<BOOL:${SKBUILD}>,YES,NO>")
 message(STATUS "================================")

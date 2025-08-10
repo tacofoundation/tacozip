@@ -2,6 +2,9 @@
 
 **tacozip** is a high-performance ZIP64 archive writer with specialized metadata support for large-scale data packaging. It features a fixed "TACO Ghost" Local File Header that can store up to 7 metadata entries for external indices.
 
+<img width="558" height="690" alt="TACOv3-Page-15 drawio" src="https://github.com/user-attachments/assets/b9d6d6e5-da6a-41aa-87d9-1f4bdb05ace7" />
+
+
 ## Key Features
 
 - **Always ZIP64** — no 4GB size limits

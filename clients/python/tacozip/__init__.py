@@ -4,6 +4,14 @@ import os
 from pathlib import Path
 
 
+try:
+    from ._self_check import _self_check
+except ImportError:
+    # Fallback if _self_check module doesn't exist
+    def _self_check():
+        _load_shared()  # This will raise if library can't be loaded
+
+
 def _load_shared():
     plat = sys.platform
     names = []

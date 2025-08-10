@@ -1,0 +1,6 @@
+Package: tacozip
+Type: Package
+Title: TACO ZIP Tools
+Version: 0.0.1
+Description: Bindings to TACOZIP C core.
+License: MIT

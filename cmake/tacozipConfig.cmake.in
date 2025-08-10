@@ -1,0 +1,10 @@
+@PACKAGE_INIT@
+
+include("${CMAKE_CURRENT_LIST_DIR}/tacozip-targets.cmake")
+
+# Provide information about the build configuration
+set(TACOZIP_VERSION "@PROJECT_VERSION@")
+set(TACOZIP_HIGH_PERFORMANCE @TACOZIP_HIGH_PERFORMANCE@)
+set(TACOZIP_BUFFER_SIZE @TACOZIP_BUFFER_SIZE@)
+
+check_required_components(tacozip)

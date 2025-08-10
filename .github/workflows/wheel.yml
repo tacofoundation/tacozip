@@ -32,6 +32,19 @@ jobs:
         with:
           python-version: '3.11'
 
+      # --- REQUIRED for aarch64 Linux builds on x86_64 runners ---
+      - name: Set up QEMU (arm64)
+        if: runner.os == 'Linux'
+        uses: docker/setup-qemu-action@v3
+        with:
+          platforms: arm64
+
+      # Optional smoke test so we fail fast if binfmt isn’t registered
+      - name: Verify arm64 container runs
+        if: runner.os == 'Linux'
+        run: |
+          docker run --rm --platform linux/arm64 quay.io/pypa/manylinux2014_aarch64:2025.04.19-1 uname -m
+
       - name: Install cibuildwheel
         run: |
           python -m pip install --upgrade pip
@@ -47,8 +60,10 @@ jobs:
           CIBW_ARCHS_LINUX: "x86_64 aarch64"
           CIBW_MANYLINUX_X86_64_IMAGE: "manylinux2014"
           CIBW_MANYLINUX_AARCH64_IMAGE: "manylinux2014"
-          CIBW_MUSLLINUX_X86_64_IMAGE: "musllinux_1_1"
-          CIBW_MUSLLINUX_AARCH64_IMAGE: "musllinux_1_1"
+
+          # Pin musllinux images to avoid deprecation warning
+          CIBW_MUSLLINUX_X86_64_IMAGE: "quay.io/pypa/musllinux_1_1_x86_64:2024.10.26-1"
+          CIBW_MUSLLINUX_AARCH64_IMAGE: "quay.io/pypa/musllinux_1_1_aarch64:2024.10.26-1"
 
           CIBW_REPAIR_WHEEL_COMMAND_LINUX: "auditwheel repair -w {dest_dir} {wheel}"
 
@@ -56,16 +71,15 @@ jobs:
           CIBW_ARCHS_MACOS: "universal2"
           CIBW_ENVIRONMENT_MACOS: |
             MACOSX_DEPLOYMENT_TARGET=11.0
-
           CIBW_REPAIR_WHEEL_COMMAND_MACOS: >-
             bash -exc "
-              python -c 'import zipfile; w=\"{wheel}\"; print(\"== Wheel contents before delocate ==\"); [print(n) for n in zipfile.ZipFile(w).namelist()]' &&
-              echo \"== Library architecture info ==\" &&
-              find . -name \"*.dylib\" -exec echo \"File: {{}}\" \; -exec file {{}} \; -exec lipo -info {{}} \; 2>/dev/null || true &&
-              if lipo -info python/tacozip/libtacozip.dylib | grep -q \"{delocate_archs}\"; then
+              python -m pip install delocate &&
+              python -c 'import zipfile; w=\"{wheel}\"; print(\"== Wheel before delocate ==\"); [print(n) for n in zipfile.ZipFile(w).namelist()]' &&
+              find . -name '*.dylib' -exec echo 'File: {}' \; -exec file {} \; -exec lipo -info {} \; 2>/dev/null || true &&
+              if lipo -info python/tacozip/libtacozip.dylib | grep -q '{delocate_archs}'; then
                 delocate-wheel --require-archs {delocate_archs} -w {dest_dir} -v {wheel}
               else
-                echo \"WARNING: Library architecture mismatch, copying wheel without delocate\"
+                echo 'WARNING: arch mismatch, copying wheel without delocate'
                 cp {wheel} {dest_dir}/
               fi
             "
@@ -73,38 +87,33 @@ jobs:
           # ===== Windows =====
           CIBW_ARCHS_WINDOWS: "AMD64"
 
-          # ===== Build native lib =====
+          # ===== Build native lib (stage into package) =====
           CIBW_BEFORE_ALL_LINUX: >
             bash -exc "
               python -m pip install cmake ninja &&
               rm -rf build &&
               cp -f README.md python/ || true &&
               mkdir -p python/tacozip && touch python/tacozip/__init__.py &&
-              cmake -S . -B build -G Ninja \
-                -DCMAKE_BUILD_TYPE=Release \
-                -DTACOZIP_ENABLE_IPO=OFF &&
+              cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=Release -DTACOZIP_ENABLE_IPO=OFF &&
               cmake --build build -j &&
               cp build/libtacozip.so python/tacozip/
             "
-
           CIBW_BEFORE_ALL_MACOS: >
             bash -exc "
               python -m pip install cmake ninja &&
               rm -rf build &&
               cp -f README.md python/ || true &&
               mkdir -p python/tacozip && touch python/tacozip/__init__.py &&
-              echo \"Building for CIBW_TARGET_ARCH=\${CIBW_TARGET_ARCH}\" &&
               cmake -S . -B build -G Ninja \
                 -DCMAKE_BUILD_TYPE=Release \
                 -DTACOZIP_ENABLE_IPO=OFF \
-                -DCMAKE_OSX_DEPLOYMENT_TARGET=\${MACOSX_DEPLOYMENT_TARGET} \
-                -DCMAKE_OSX_ARCHITECTURES=\"x86_64;arm64\" &&
+                -DCMAKE_OSX_DEPLOYMENT_TARGET=${MACOSX_DEPLOYMENT_TARGET} \
+                -DCMAKE_OSX_ARCHITECTURES='x86_64;arm64' &&
               cmake --build build -j &&
               cp build/libtacozip.dylib python/tacozip/ &&
-              lipo -info python/tacozip/libtacozip.dylib | grep -q \"x86_64\" &&
-              lipo -info python/tacozip/libtacozip.dylib | grep -q \"arm64\"
+              lipo -info python/tacozip/libtacozip.dylib | grep -q 'x86_64' &&
+              lipo -info python/tacozip/libtacozip.dylib | grep -q 'arm64'
             "
-
           CIBW_BEFORE_ALL_WINDOWS: >
             bash -exc "
               python -m pip install cmake ninja &&

@@ -1,7 +1,7 @@
 /*
- * tacozip.c — High-performance ZIP64 (CIP64) writer with a fixed 64-byte "TACO Ghost" LFH at byte 0.
+ * tacozip.c — High-performance ZIP64 (CIP64) writer with a TACO Ghost supporting up to 7 metadata entries.
  *
- * Version:    0.1.0
+ * Version:    0.2.0
  * Author:     Cesar Aybar (csaybar)
  * Inspired by: Strongly inspired by libzip's implementation details (https://libzip.org), but 
  *      reduced to the essentials for the specific use case: CIP64 + STORE + ghost LFH.
@@ -9,37 +9,21 @@
  * Overview:
  *  - Always uses ZIP64 structures (ver_needed = 45) regardless of file sizes.
  *  - STORE-only (no compression) for maximum throughput and simplicity.
- *  - Writes a special, fixed-size 64-byte "TACO Ghost" Local File Header (LFH) at offset 0.
- *    This entry is not listed in the Central Directory and contains two uint64 fields
+ *  - Writes a special, fixed-size 160-byte "TACO Ghost" Local File Header (LFH) at offset 0.
+ *    This entry is not listed in the Central Directory and contains up to 7 uint64 pairs
  *    (metadata_offset, metadata_length) for application-level metadata retrieval.
- *  - Optimized for sequential appending and high-bandwidth writes:
- *      • Large dedicated output buffer (default 4 MiB) bound to FILE* via setvbuf().
- *      • Reusable scratch buffer for file copies (default 1 MiB).
- *      • Optional posix_fallocate() preallocation to reduce fragmentation.
- *      • Unlocked stdio I/O (glibc fread_unlocked/fwrite_unlocked) when available.
- *      • Minimal heap churn — name strings duplicated once, buffers reused.
- *  - Correct streaming CRC32 computation in a single pass, using the canonical IEEE
- *    polynomial (0xEDB88320) with precomputed lookup table.
+ *  - Automatically detects how many metadata entries are valid by counting non-zero pairs.
+ *  - Optimized for sequential appending and high-bandwidth writes with large buffers.
+ *  - Correct streaming CRC32 computation in a single pass.
  *  - Fully contiguous Central Directory write followed by ZIP64 EOCD and locator.
  *
- * Design Choices:
- *  - All sizes/offsets written as ZIP64 fields — even small files get 0xFFFFFFFF in
- *    32-bit size fields with the actual values in the extra block.
- *  - Data Descriptors (GP flag bit 3) are used for CRC/size to avoid fseek back-patching.
- *  - UTF-8 general-purpose flag (bit 11) can be enabled at compile time via TACOZ_SET_UTF8_FLAG.
- *  - Internal memory buffers are freed *only after* fclose(), because setvbuf() attaches
- *    the output buffer to the FILE* stream.
+ * New Multi-Parquet Features:
+ *  - Support for up to 7 metadata entries in the ghost
+ *  - Automatic count detection: scans arrays until first (0,0) pair
+ *  - Backward compatibility: legacy single-entry API still works
+ *  - Deterministic output: unused entries stored as (0,0)
  *
- * Build:
- *     cc -O3 -DNDEBUG -std=c11 -Wall -Wextra -pedantic -c tacozip.c
- *
- * Tunables (can be overridden at compile time):
- *     TACOZ_OUT_BUFSZ   — size of FILE* output buffer (default 4 MiB)
- *     TACOZ_COPY_BUFSZ  — size of scratch buffer for fread/fwrite loop (default 1 MiB)
- *     TACOZ_SET_UTF8_FLAG — set to 1 to always mark entries as UTF-8
- * 
  */
-
 
 #ifndef _GNU_SOURCE
 #define _GNU_SOURCE
@@ -112,9 +96,8 @@
 #define GPFLAG_UTF8          0x0800    /* filenames are UTF-8 (bit 11) */
 #define METHOD_STORE         0         /* no compression */
 
-/* ---------- TACO Ghost constants ---------- */
-#define EXTRA_TOTAL_LEN      20u  /* 2B id + 2B size + 16B payload (two u64) */
-
+/* ---------- TACO Ghost constants (updated for multi-parquet) ---------- */
+#define EXTRA_TOTAL_LEN      116u  /* 4B header + 7*16B pairs = 116 bytes total */
 
 /* -------------------------- Little-endian writers -------------------------- */
 static inline void le16(unsigned char *p, uint16_t v){
@@ -136,6 +119,19 @@ static inline void le64(unsigned char *p, uint64_t v){
     p[5] = (unsigned char)(v >> 40);
     p[6] = (unsigned char)(v >> 48);
     p[7] = (unsigned char)(v >> 56);
+}
+
+/* -------------------------- Little-endian readers -------------------------- */
+static inline uint16_t le16_read(const unsigned char *p) {
+    return (uint16_t)p[0] | ((uint16_t)p[1] << 8);
+}
+static inline uint32_t le32_read(const unsigned char *p) {
+    return (uint32_t)p[0] | ((uint32_t)p[1] << 8) | ((uint32_t)p[2] << 16) | ((uint32_t)p[3] << 24);
+}
+static inline uint64_t le64_read(const unsigned char *p) {
+    uint64_t v = 0;
+    for (int i = 0; i < 8; i++) v |= ((uint64_t)p[i]) << (8u * i);
+    return v;
 }
 
 /* ------------------------------- CRC32 ------------------------------------- */
@@ -161,12 +157,64 @@ static inline uint32_t crc32_update_stream(uint32_t crc, const unsigned char * r
     return crc;
 }
 
+/* ----------------------- Multi-parquet helper functions -------------------- */
 
-/* ------------------------------ Ghost writer ------------------------------- */
-/* Emits the fixed 64-byte “TACO_GHOST” LFH at offset 0. Not listed in the CDR. */
-static int write_ghost(FILE *fp, uint64_t meta_off, uint64_t meta_len){
+/* Forward declaration for validate_ghost_buf_multi */
+static int validate_ghost_buf_multi(const unsigned char b[TACO_GHOST_SIZE]);
+
+/**
+ * @brief Count valid metadata entries by scanning until first (0,0) pair.
+ * @param offsets Array of 7 offset values
+ * @param lengths Array of 7 length values  
+ * @return Number of valid entries (0-7)
+ */
+static uint8_t count_valid_entries(const uint64_t *offsets, const uint64_t *lengths) {
+    for (size_t i = 0; i < TACO_GHOST_MAX_ENTRIES; i++) {
+        if (offsets[i] == 0 && lengths[i] == 0) {
+            return (uint8_t)i;  /* Found first (0,0) pair */
+        }
+    }
+    return TACO_GHOST_MAX_ENTRIES;  /* All 7 entries are valid */
+}
+
+/**
+ * @brief Convert arrays to taco_meta_array_t structure.
+ * @param offsets Input array of 7 offset values
+ * @param lengths Input array of 7 length values
+ * @param out Output structure
+ */
+static void arrays_to_meta_struct(const uint64_t *offsets, const uint64_t *lengths, taco_meta_array_t *out) {
+    out->count = count_valid_entries(offsets, lengths);
+    for (size_t i = 0; i < TACO_GHOST_MAX_ENTRIES; i++) {
+        out->entries[i].offset = offsets[i];
+        out->entries[i].length = lengths[i];
+    }
+}
+
+/**
+ * @brief Convert taco_meta_array_t structure to arrays.
+ * @param meta Input structure
+ * @param offsets Output array of 7 offset values
+ * @param lengths Output array of 7 length values
+ */
+static void meta_struct_to_arrays(const taco_meta_array_t *meta, uint64_t *offsets, uint64_t *lengths) {
+    for (size_t i = 0; i < TACO_GHOST_MAX_ENTRIES; i++) {
+        offsets[i] = meta->entries[i].offset;
+        lengths[i] = meta->entries[i].length;
+    }
+}
+
+/* ---------------------------- Ghost writer (new) --------------------------- */
+/**
+ * @brief Write the fixed 160-byte "TACO_GHOST" LFH with up to 7 metadata entries.
+ * @param fp Output file stream
+ * @param meta Metadata structure with up to 7 entries
+ * @return TACOZ_OK on success, TACOZ_ERR_IO on failure
+ */
+static int write_ghost_multi(FILE *fp, const taco_meta_array_t *meta) {
     unsigned char b[TACO_GHOST_SIZE] = {0};
 
+    /* Standard LFH header (30 bytes) */
     le32(b + 0,  SIG_LFH);
     le16(b + 4,  VER_NEEDED_ZIP64);
     le16(b + 6,  0);                 /* flags */
@@ -177,15 +225,40 @@ static int write_ghost(FILE *fp, uint64_t meta_off, uint64_t meta_len){
     le16(b + 26, TACO_GHOST_NAME_LEN);
     le16(b + 28, EXTRA_TOTAL_LEN);
 
+    /* Filename "TACO_GHOST" (10 bytes) */
     memcpy(b + 30, TACO_GHOST_NAME, TACO_GHOST_NAME_LEN);
 
-    le16(b + 40, TACO_GHOST_EXTRA_ID);
-    le16(b + 42, TACO_GHOST_EXTRA_SIZE); /* fixed 16 bytes payload */
-    le64(b + 44, meta_off);
-    le64(b + 52, meta_len);
+    /* Extra field header (4 bytes) */
+    le16(b + 40, TACO_GHOST_EXTRA_ID);     /* 0x7454 */
+    le16(b + 42, TACO_GHOST_EXTRA_SIZE);   /* 112 bytes of data */
+
+    /* Count byte + 3 padding bytes for alignment */
+    b[44] = meta->count;
+    b[45] = b[46] = b[47] = 0;  /* padding */
+
+    /* 7 pairs of (offset, length) - 112 bytes total */
+    unsigned char *pairs_start = b + 48;
+    for (size_t i = 0; i < TACO_GHOST_MAX_ENTRIES; i++) {
+        le64(pairs_start + i * 16 + 0, meta->entries[i].offset);
+        le64(pairs_start + i * 16 + 8, meta->entries[i].length);
+    }
 
     if (TZ_FWRITE(b, 1, sizeof b, fp) != sizeof b) return TACOZ_ERR_IO;
     return TACOZ_OK;
+}
+
+/* ----------------------- Legacy ghost writer (compatibility) --------------- */
+/**
+ * @brief Write ghost with single metadata entry (legacy API).
+ */
+static int write_ghost_legacy(FILE *fp, uint64_t meta_off, uint64_t meta_len) {
+    taco_meta_array_t meta = {0};
+    meta.count = (meta_off != 0 || meta_len != 0) ? 1 : 0;
+    meta.entries[0].offset = meta_off;
+    meta.entries[0].length = meta_len;
+    /* entries[1..6] remain zero-initialized */
+    
+    return write_ghost_multi(fp, &meta);
 }
 
 /* ------------------------ Central Directory bookkeeping -------------------- */
@@ -240,7 +313,7 @@ static void try_posix_fallocate_estimate(FILE *fp,
                                          size_t num_files)
 {
 #if defined(__linux__)
-    uint64_t sum = TACO_GHOST_SIZE;
+    uint64_t sum = TACO_GHOST_SIZE;  /* Updated for new ghost size */
     for (size_t i = 0; i < num_files; i++){
         struct stat st;
         uint64_t fsz = 0;
@@ -444,7 +517,164 @@ static int write_cd_and_eocd(zipw_t *w){
     return TACOZ_OK;
 }
 
-/* -------------------------------- Public API ------------------------------- */
+/* ========================================================================== */
+/*                            NEW MULTI-PARQUET API                          */
+/* ========================================================================== */
+
+int tacozip_create_multi(const char *zip_path,
+                        const char * const *src_files,
+                        const char * const *arc_files,
+                        size_t num_files,
+                        const uint64_t *meta_offsets,
+                        const uint64_t *meta_lengths,
+                        size_t array_size)
+{
+    if (!zip_path || !src_files || !arc_files || num_files == 0)
+        return TACOZ_ERR_PARAM;
+    
+    if (!meta_offsets || !meta_lengths || array_size != TACO_GHOST_MAX_ENTRIES)
+        return TACOZ_ERR_PARAM;
+
+    FILE *fp = fopen(zip_path, "wb");
+    if (!fp) return TACOZ_ERR_IO;
+
+    zipw_t w = {0};
+    w.fp = fp;
+
+    /* Attach a large output buffer to this FILE*. IMPORTANT: do not free before fclose(). */
+    w.out_buf = (unsigned char*)malloc(TACOZ_OUT_BUFSZ);
+    if (w.out_buf) {
+        w.out_buf_cap = TACOZ_OUT_BUFSZ;
+        (void)setvbuf(fp, (char*)w.out_buf, _IOFBF, w.out_buf_cap);
+    }
+
+    try_posix_fallocate_estimate(fp, src_files, arc_files, num_files);
+
+    /* 1) Convert arrays to metadata structure */
+    taco_meta_array_t meta = {0};
+    arrays_to_meta_struct(meta_offsets, meta_lengths, &meta);
+
+    /* 2) Write the multi-entry ghost at byte 0. */
+    if (write_ghost_multi(fp, &meta) != TACOZ_OK) {
+        (void)fclose(fp);
+        if (w.out_buf) free(w.out_buf);
+        return TACOZ_ERR_IO;
+    }
+
+    /* 3) Stream each file: LFH→data→DD. */
+    for (size_t i = 0; i < num_files; i++) {
+        if (!src_files[i] || !arc_files[i]) {
+            (void)fclose(fp);
+            if (w.buf) free(w.buf);
+            if (w.out_buf) free(w.out_buf);
+            for (size_t j = 0; j < w.n; j++) free(w.ents[j].name);
+            free(w.ents);
+            return TACOZ_ERR_PARAM;
+        }
+        int r = add_file(&w, src_files[i], arc_files[i]);
+        if (r != TACOZ_OK) {
+            (void)fclose(fp);
+            if (w.buf) free(w.buf);
+            if (w.out_buf) free(w.out_buf);
+            for (size_t j = 0; j < w.n; j++) free(w.ents[j].name);
+            free(w.ents);
+            return r;
+        }
+    }
+
+    /* 4) Emit CD + EOCD64 + locator + classic EOCD. */
+    int rc = write_cd_and_eocd(&w);
+
+    /* Flush/close BEFORE freeing the setvbuf buffer (glibc uses it on flush). */
+    if (fclose(fp) != 0) {
+        if (w.buf) free(w.buf);
+        if (w.out_buf) free(w.out_buf);
+        for (size_t i = 0; i < w.n; i++) free(w.ents[i].name);
+        free(w.ents);
+        return TACOZ_ERR_IO;
+    }
+
+    /* Now release memory safely. */
+    if (w.buf) free(w.buf);
+    if (w.out_buf) free(w.out_buf);
+    for (size_t i = 0; i < w.n; i++) free(w.ents[i].name);
+    free(w.ents);
+
+    if (rc != TACOZ_OK) return rc;
+    return TACOZ_OK;
+}
+
+int tacozip_read_ghost_multi(const char *zip_path, taco_meta_array_t *out) {
+    if (!zip_path || !out) return TACOZ_ERR_PARAM;
+    
+    FILE *fp = fopen(zip_path, "rb");
+    if (!fp) return TACOZ_ERR_IO;
+
+    unsigned char b[TACO_GHOST_SIZE];
+    size_t n = fread(b, 1, sizeof b, fp);
+    fclose(fp);
+    if (n != sizeof b) return TACOZ_ERR_IO;
+
+    int v = validate_ghost_buf_multi(b);
+    if (v != TACOZ_OK) return v;
+
+    /* Read count byte */
+    out->count = b[44];
+    if (out->count > TACO_GHOST_MAX_ENTRIES) return TACOZ_ERR_INVALID_GHOST;
+
+    /* Read all 7 pairs (even unused ones) */
+    const unsigned char *pairs_start = b + 48;
+    for (size_t i = 0; i < TACO_GHOST_MAX_ENTRIES; i++) {
+        out->entries[i].offset = le64_read(pairs_start + i * 16 + 0);
+        out->entries[i].length = le64_read(pairs_start + i * 16 + 8);
+    }
+
+    return TACOZ_OK;
+}
+
+int tacozip_update_ghost_multi(const char *zip_path,
+                              const uint64_t *meta_offsets,
+                              const uint64_t *meta_lengths,
+                              size_t array_size) {
+    if (!zip_path || !meta_offsets || !meta_lengths || array_size != TACO_GHOST_MAX_ENTRIES)
+        return TACOZ_ERR_PARAM;
+    
+    FILE *fp = fopen(zip_path, "r+b");
+    if (!fp) return TACOZ_ERR_IO;
+
+    /* Validate existing ghost before in-place patch. */
+    unsigned char b[TACO_GHOST_SIZE];
+    if (fread(b, 1, sizeof b, fp) != sizeof b) { fclose(fp); return TACOZ_ERR_IO; }
+    int v = validate_ghost_buf_multi(b);
+    if (v != TACOZ_OK) { fclose(fp); return v; }
+
+    /* Convert arrays to metadata structure and count valid entries */
+    taco_meta_array_t meta = {0};
+    arrays_to_meta_struct(meta_offsets, meta_lengths, &meta);
+
+    /* Seek to count byte and update */
+    if (fseeko(fp, 44, SEEK_SET) != 0) { fclose(fp); return TACOZ_ERR_IO; }
+    if (TZ_FWRITE(&meta.count, 1, 1, fp) != 1) { fclose(fp); return TACOZ_ERR_IO; }
+
+    /* Skip 3 padding bytes, seek to pairs data */
+    if (fseeko(fp, 48, SEEK_SET) != 0) { fclose(fp); return TACOZ_ERR_IO; }
+
+    /* Write all 7 pairs */
+    for (size_t i = 0; i < TACO_GHOST_MAX_ENTRIES; i++) {
+        unsigned char pair[16];
+        le64(pair + 0, meta.entries[i].offset);
+        le64(pair + 8, meta.entries[i].length);
+        if (TZ_FWRITE(pair, 1, 16, fp) != 16) { fclose(fp); return TACOZ_ERR_IO; }
+    }
+
+    if (fclose(fp) != 0) return TACOZ_ERR_IO;
+    return TACOZ_OK;
+}
+
+/* ========================================================================== */
+/*                         LEGACY SINGLE-ENTRY API                           */
+/* ========================================================================== */
+
 int tacozip_create(const char *zip_path,
                    const char * const *src_files,
                    const char * const *arc_files,
@@ -470,8 +700,8 @@ int tacozip_create(const char *zip_path,
 
     try_posix_fallocate_estimate(fp, src_files, arc_files, num_files);
 
-    /* 1) Fixed ghost at byte 0. */
-    if (write_ghost(fp, meta_offset, meta_length) != TACOZ_OK) {
+    /* 1) Fixed ghost at byte 0 (legacy single entry). */
+    if (write_ghost_legacy(fp, meta_offset, meta_length) != TACOZ_OK) {
         (void)fclose(fp);                /* flush before freeing setvbuf buffer */
         if (w.out_buf) free(w.out_buf);
         return TACOZ_ERR_IO;
@@ -520,59 +750,71 @@ int tacozip_create(const char *zip_path,
     return TACOZ_OK;
 }
 
-/* ----------------------------- Ghost helpers ------------------------------- */
-/* Minimal structural validation: signature, name/extra lengths, fixed name. */
-static int validate_ghost_buf(const unsigned char b[TACO_GHOST_SIZE]) {
-    uint32_t sig = (uint32_t)b[0] | ((uint32_t)b[1] << 8) | ((uint32_t)b[2] << 16) | ((uint32_t)b[3] << 24);
+/* ----------------------------- Ghost helpers (updated) ---------------------- */
+/* Validation function for new multi-entry ghost format */
+static int validate_ghost_buf_multi(const unsigned char b[TACO_GHOST_SIZE]) {
+    uint32_t sig = le32_read(b + 0);
     if (sig != SIG_LFH) return TACOZ_ERR_INVALID_GHOST;
-    uint16_t name_len  = (uint16_t)b[26] | ((uint16_t)b[27] << 8);
-    uint16_t extra_len = (uint16_t)b[28] | ((uint16_t)b[29] << 8);
-    if (name_len != TACO_GHOST_NAME_LEN || extra_len != EXTRA_TOTAL_LEN) return TACOZ_ERR_INVALID_GHOST;
-    if (memcmp(b + 30, TACO_GHOST_NAME, TACO_GHOST_NAME_LEN) != 0) return TACOZ_ERR_INVALID_GHOST;
+    
+    uint16_t name_len  = le16_read(b + 26);
+    uint16_t extra_len = le16_read(b + 28);
+    if (name_len != TACO_GHOST_NAME_LEN || extra_len != EXTRA_TOTAL_LEN) 
+        return TACOZ_ERR_INVALID_GHOST;
+    
+    if (memcmp(b + 30, TACO_GHOST_NAME, TACO_GHOST_NAME_LEN) != 0) 
+        return TACOZ_ERR_INVALID_GHOST;
+    
+    /* Check extra field header */
+    uint16_t extra_id = le16_read(b + 40);
+    uint16_t extra_size = le16_read(b + 42);
+    if (extra_id != TACO_GHOST_EXTRA_ID || extra_size != TACO_GHOST_EXTRA_SIZE)
+        return TACOZ_ERR_INVALID_GHOST;
+    
+    /* Check count is valid */
+    uint8_t count = b[44];
+    if (count > TACO_GHOST_MAX_ENTRIES) return TACOZ_ERR_INVALID_GHOST;
+    
     return TACOZ_OK;
 }
 
 int tacozip_read_ghost(const char *zip_path, taco_meta_ptr_t *out) {
     if (!zip_path || !out) return TACOZ_ERR_PARAM;
-    FILE *fp = fopen(zip_path, "rb");
-    if (!fp) return TACOZ_ERR_IO;
-
-    unsigned char b[TACO_GHOST_SIZE];
-    size_t n = fread(b, 1, sizeof b, fp);
-    fclose(fp);
-    if (n != sizeof b) return TACOZ_ERR_IO;
-
-    int v = validate_ghost_buf(b);
-    if (v != TACOZ_OK) return v;
-
-    /* LE64 decode of offset/length payload. */
-    uint64_t off = 0, len = 0;
-    for (int i = 0; i < 8; i++) off |= ((uint64_t)b[44 + i]) << (8u * i);
-    for (int i = 0; i < 8; i++) len |= ((uint64_t)b[52 + i]) << (8u * i);
-    out->offset = off;
-    out->length = len;
+    
+    /* Use multi-reader and extract first entry */
+    taco_meta_array_t multi = {0};
+    int rc = tacozip_read_ghost_multi(zip_path, &multi);
+    if (rc != TACOZ_OK) return rc;
+    
+    /* Return first entry (or 0,0 if no entries) */
+    if (multi.count > 0) {
+        out->offset = multi.entries[0].offset;
+        out->length = multi.entries[0].length;
+    } else {
+        out->offset = 0;
+        out->length = 0;
+    }
+    
     return TACOZ_OK;
 }
 
 int tacozip_update_ghost(const char *zip_path, uint64_t new_offset, uint64_t new_length) {
     if (!zip_path) return TACOZ_ERR_PARAM;
-    FILE *fp = fopen(zip_path, "r+b");
-    if (!fp) return TACOZ_ERR_IO;
-
-    /* Validate existing ghost before in-place patch. */
-    unsigned char b[TACO_GHOST_SIZE];
-    if (fread(b, 1, sizeof b, fp) != sizeof b) { fclose(fp); return TACOZ_ERR_IO; }
-    int v = validate_ghost_buf(b);
-    if (v != TACOZ_OK) { fclose(fp); return v; }
-
-    /* Seek to payload and patch LE64 offset/length. */
-    if (fseeko(fp, 44, SEEK_SET) != 0) { fclose(fp); return TACOZ_ERR_IO; }
-    unsigned char le[8];
-    le64(le, new_offset);
-    if (TZ_FWRITE(le, 1, 8, fp) != 8) { fclose(fp); return TACOZ_ERR_IO; }
-    le64(le, new_length);
-    if (TZ_FWRITE(le, 1, 8, fp) != 8) { fclose(fp); return TACOZ_ERR_IO; }
-
-    if (fclose(fp) != 0) return TACOZ_ERR_IO;
-    return TACOZ_OK;
+    
+    /* Read current ghost state */
+    taco_meta_array_t meta = {0};
+    int rc = tacozip_read_ghost_multi(zip_path, &meta);
+    if (rc != TACOZ_OK) return rc;
+    
+    /* Update first entry, preserve others */
+    meta.entries[0].offset = new_offset;
+    meta.entries[0].length = new_length;
+    
+    /* Recalculate count (in case first entry became 0,0) */
+    uint64_t offsets[TACO_GHOST_MAX_ENTRIES];
+    uint64_t lengths[TACO_GHOST_MAX_ENTRIES];
+    meta_struct_to_arrays(&meta, offsets, lengths);
+    meta.count = count_valid_entries(offsets, lengths);
+    
+    /* Use multi-updater */
+    return tacozip_update_ghost_multi(zip_path, offsets, lengths, TACO_GHOST_MAX_ENTRIES);
 }

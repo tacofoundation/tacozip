@@ -1,50 +1,64 @@
+[build-system]
+requires = ["setuptools>=61.0", "wheel", "setuptools-scm"]
+build-backend = "setuptools.build_meta"
+
 [project]
 name = "tacozip"
-version = "0.2.0"
-requires-python = ">=3.9"
-description = "Fast ZIP-like container with ghost metadata"
+version = "0.3.0"
+description = "TACO ZIP: ZIP64 archive with TACO Ghost supporting up to 7 metadata entries"
 readme = "README.md"
-authors = [{ name = "Cesar Aybar" }]
-
-# Use classifiers for license instead of the problematic license field
+license = {text = "MIT"}
+authors = [
+    {name = "Cesar Aybar", email = "csaybar@gmail.com"}
+]
+keywords = ["zip", "zip64", "compression", "archive", "parquet", "metadata"]
 classifiers = [
+    "Development Status :: 4 - Beta",
+    "Intended Audience :: Developers",
     "License :: OSI Approved :: MIT License",
+    "Operating System :: POSIX :: Linux",
+    "Operating System :: MacOS :: MacOS X", 
+    "Operating System :: Microsoft :: Windows",
+    "Programming Language :: C",
     "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.8",
     "Programming Language :: Python :: 3.9",
-    "Programming Language :: Python :: 3.10", 
+    "Programming Language :: Python :: 3.10",
     "Programming Language :: Python :: 3.11",
     "Programming Language :: Python :: 3.12",
-    "Programming Language :: Python :: 3.13",
-    "Operating System :: OS Independent",
+    "Topic :: System :: Archiving :: Compression",
+    "Topic :: Software Development :: Libraries :: Python Modules"
+]
+requires-python = ">=3.8"
+dependencies = []
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=6.0",
+    "pytest-cov",
+    "black",
+    "flake8",
+    "mypy"
 ]
 
+[project.urls]
+Homepage = "https://github.com/csaybar/tacozip"
+Repository = "https://github.com/csaybar/tacozip"
+Issues = "https://github.com/csaybar/tacozip/issues"
+
 [tool.setuptools]
-package-dir = {"" = "."}
+packages = ["tacozip"]
 include-package-data = true
 
-[tool.setuptools.packages.find]
-where = ["."]
-include = ["tacozip"]
-
 [tool.setuptools.package-data]
-tacozip = ["libtacozip.*", "tacozip.dll"]
+tacozip = ["*.so", "*.dll", "*.dylib"]
 
-#[tool.scikit-build]
-#wheel.packages = ["clients/python"]
-#editable.mode = "redirect"
-#sdist.include = [
-#  "CMakeLists.txt",
-#  "src/**",
-#  "include/**",
-#  "cmake/**",
-#  "clients/python/**",
-#  "README.md",
-#  "LICENSE",
-#]
+[tool.black]
+line-length = 88
+target-version = ['py38']
 
-#[tool.scikit-build.cmake]
-#source-dir = "../.."
-
-[build-system]
-requires = ["setuptools>=68", "wheel"]
-build-backend = "setuptools.build_meta"
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+python_files = ["test_*.py"]
+python_classes = ["Test*"]
+python_functions = ["test_*"]

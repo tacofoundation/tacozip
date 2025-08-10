@@ -1,7 +1,8 @@
 cmake_minimum_required(VERSION 3.15)
 
 # -----------------------------------------------------------------------------
-# tacozip — CIP64 (always ZIP64), STORE-only writer with fixed 64B "ghost"
+# tacozip — CIP64 (always ZIP64), STORE-only writer with TACO Ghost supporting
+# up to 7 metadata entries. Each entry points to a different parquet file.
 # Strongly inspired by libzip's streaming layout; specialized for CIP64.
 #
 # Quickstart:
@@ -10,9 +11,9 @@ cmake_minimum_required(VERSION 3.15)
 #   cmake --install --preset release
 # -----------------------------------------------------------------------------
 project(tacozip
-  VERSION 0.2.0
+  VERSION 0.3.0
   LANGUAGES C
-  DESCRIPTION "TACO ZIP: ZIP64 archive with fixed 64-byte ghost LFH"
+  DESCRIPTION "TACO ZIP: ZIP64 archive with TACO Ghost supporting up to 7 metadata entries"
 )
 
 # Export all symbols on Windows if no .def is provided (helps produce tacozip.dll)
@@ -36,6 +37,10 @@ option(TACOZIP_SET_UTF8_FLAG          "Set UTF-8 general purpose bit (compile-ti
 # Buffer tunables (compile-time constants used by the C code)
 set(TACOZ_OUT_BUFSZ  4194304  CACHE STRING "Output buffer size (bytes), default 4 MiB")
 set(TACOZ_COPY_BUFSZ 1048576  CACHE STRING "Copy buffer size (bytes), default 1 MiB")
+
+# Multi-parquet configuration (informational only - hardcoded in source)
+set(TACO_GHOST_MAX_ENTRIES 7 CACHE STRING "Maximum metadata entries in ghost (hardcoded)")
+set(TACO_GHOST_SIZE 160 CACHE STRING "Size of TACO ghost in bytes (hardcoded)")
 
 include(GNUInstallDirs)
 include(CheckSymbolExists)
@@ -246,6 +251,8 @@ message(STATUS "Static lib (extra)     : ${TACOZIP_BUILD_STATIC}")
 message(STATUS "UTF-8 flag default     : ${TACOZIP_SET_UTF8_FLAG}")
 message(STATUS "Out buffer (bytes)     : ${TACOZ_OUT_BUFSZ}")
 message(STATUS "Copy buffer (bytes)    : ${TACOZ_COPY_BUFSZ}")
+message(STATUS "Ghost max entries      : ${TACO_GHOST_MAX_ENTRIES} (hardcoded)")
+message(STATUS "Ghost size (bytes)     : ${TACO_GHOST_SIZE} (hardcoded)")
 message(STATUS "IPO/LTO                : ${TACOZIP_ENABLE_IPO}")
 message(STATUS "Sanitizers             : ${TACOZIP_ENABLE_SANITIZERS}")
 message(STATUS "posix_fallocate()      : ${TACOZ_HAVE_POSIX_FALLOCATE}")

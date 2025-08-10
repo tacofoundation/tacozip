@@ -3,15 +3,15 @@
 
 /**
  * @file tacozip.h
- * @brief Minimal ZIP64 (STORE-only) writer with a fixed 64-byte "TACO Ghost"
- *        Local File Header at byte 0. The ghost is not listed in the Central Directory.
+ * @brief Minimal ZIP64 (STORE-only) writer with a fixed "TACO Ghost"
+ *        Local File Header at byte 0. The ghost supports up to 7 metadata entries.
  *
  * ## Overview
- * - Always ZIP64 (“CIP64”): version_needed=45, ZIP64 extras for sizes and offsets,
+ * - Always ZIP64 ("CIP64"): version_needed=45, ZIP64 extras for sizes and offsets,
  *   ZIP64 EOCD + locator, plus classic EOCD with truncated fields.
  * - STORE-only (method=0). Sizes are streamed via ZIP64 data descriptors.
- * - A fixed 64-byte “TACO Ghost” LFH is written at file start to carry
- *   (offset,length) metadata for external indices. This ghost **does not**
+ * - A fixed "TACO Ghost" LFH is written at file start to carry
+ *   up to 7 (offset,length) metadata pairs for external indices. This ghost **does not**
  *   appear in the Central Directory.
  * - No filename normalization in C; callers must pass sanitized archive names.
  *
@@ -33,12 +33,21 @@
  * @code
  *   const char *src[] = {"/abs/a.bin", "/abs/b.bin"};
  *   const char *arc[] = {"a.bin", "sub/b.bin"};
- *   int rc = tacozip_create("out.taco.zip", src, arc, 2, meta_off, meta_len);
+ *   
+ *   // Up to 7 metadata entries
+ *   uint64_t offsets[] = {1000, 2000, 0, 0, 0, 0, 0};  // 0 means unused
+ *   uint64_t lengths[] = {500, 750, 0, 0, 0, 0, 0};    // 0 means unused
+ *   
+ *   int rc = tacozip_create_multi("out.taco.zip", src, arc, 2, offsets, lengths, 7);
  *   if (rc != TACOZ_OK) { handle error }
  *
- *   taco_meta_ptr_t m = {0};
- *   rc = tacozip_read_ghost("out.taco.zip", &m);
- *   rc = tacozip_update_ghost("out.taco.zip", m.offset, m.length);
+ *   taco_meta_array_t meta = {0};
+ *   rc = tacozip_read_ghost_multi("out.taco.zip", &meta);
+ *   
+ *   // Update specific entry
+ *   uint64_t new_offsets[7] = {1500, 2000, 0, 0, 0, 0, 0};
+ *   uint64_t new_lengths[7] = {600, 750, 0, 0, 0, 0, 0};
+ *   rc = tacozip_update_ghost_multi("out.taco.zip", new_offsets, new_lengths, 7);
  * @endcode
  */
 
@@ -50,7 +59,7 @@ extern "C" {
 #endif
 
 /*
- * TACO Ghost Layout (fixed 64 bytes at start of file):
+ * TACO Ghost Layout (variable size, minimum 160 bytes):
  *
  *  [0..3]   : 0x04034B50 (Local File Header signature)
  *  [4..5]   : version_needed = 45 (ZIP64 required)
@@ -61,24 +70,37 @@ extern "C" {
  *  [18..21] : compressed_size = 0
  *  [22..25] : uncompressed_size = 0
  *  [26..27] : file_name_length = 10 ("TACO_GHOST")
- *  [28..29] : extra_field_length = 20
+ *  [28..29] : extra_field_length = 116 (4 + 7*16 = count + 7 pairs)
  *  [30..39] : file_name = "TACO_GHOST"
  *  [40..41] : extra_header_id = 0x7454
- *  [42..43] : extra_data_size = 16
- *  [44..51] : uint64_le metadata_offset
- *  [52..59] : uint64_le metadata_length
- *  [60..63] : zero padding
+ *  [42..43] : extra_data_size = 112 (7*16 bytes for pairs)
+ *  [44]     : uint8_t count (number of valid entries, 0-7)
+ *  [45..47] : padding (3 bytes for alignment)
+ *  [48..159]: 7 pairs of uint64_le (offset, length) - total 112 bytes
  *
  * This LFH is intentionally omitted from the CDR.
  */
 
-#define TACO_GHOST_SIZE          64u
+#define TACO_GHOST_MAX_ENTRIES   7u
+#define TACO_GHOST_SIZE          160u
 #define TACO_GHOST_NAME          "TACO_GHOST"
 #define TACO_GHOST_NAME_LEN      10u
 #define TACO_GHOST_EXTRA_ID      0x7454u  /* 'tT' little-endian (project-assigned) */
-#define TACO_GHOST_EXTRA_SIZE    16u      /* two little-endian uint64_t */
+#define TACO_GHOST_EXTRA_SIZE    116u     /* 4 bytes header + 7*16 bytes pairs */
 
-/** @brief Pointer to external metadata carried by the ghost. */
+/** @brief Single metadata entry */
+typedef struct {
+    uint64_t offset;  /**< Absolute byte offset of external metadata. */
+    uint64_t length;  /**< Length in bytes of external metadata.      */
+} taco_meta_entry_t;
+
+/** @brief Array of up to 7 metadata entries carried by the ghost. */
+typedef struct {
+    uint8_t count;                               /**< Number of valid entries (0-7). */
+    taco_meta_entry_t entries[TACO_GHOST_MAX_ENTRIES]; /**< Metadata entries array. */
+} taco_meta_array_t;
+
+/** @brief Legacy single metadata pointer (for backward compatibility) */
 typedef struct {
     uint64_t offset;  /**< Absolute byte offset of external metadata. */
     uint64_t length;  /**< Length in bytes of external metadata.      */
@@ -114,24 +136,76 @@ enum {
 };
 
 /* ========================================================================== */
-/*                                  API                                       */
+/*                                  Multiplexed API                           */
 /* ========================================================================== */
+
 /**
- * @brief Create a ZIP64 archive with a fixed 64-byte TACO Ghost at byte 0.
+ * @brief Create a ZIP64 archive with a TACO Ghost supporting up to 7 metadata entries.
  *
- * Behavior:
- *  - Always ZIP64 (“CIP64”), regardless of sizes.
- *  - All entries are STORE (no compression).
- *  - Each entry is written as: LFH (sizes unknown) → raw data stream →
- *    ZIP64 data descriptor (signature + CRC32 + comp_size(8) + uncomp_size(8)).
- *  - Central Directory records carry ZIP64 extra fields for sizes and LFH offsets.
- *  - ZIP64 EOCD + ZIP64 locator + classic EOCD (with truncated fields) are emitted.
- *  - The ghost LFH is **not** present in the Central Directory.
+ * This is the new primary API that supports multiple parquet metadata files.
+ * 
+ * @param zip_path     Output path for the archive.
+ * @param src_files    Array of absolute or relative filesystem paths (N elements).
+ * @param arc_files    Array of archive names (N elements; used verbatim).
+ * @param num_files    Number of files N.
+ * @param meta_offsets Array of 7 uint64_t offsets (use 0 for unused entries).
+ * @param meta_lengths Array of 7 uint64_t lengths (use 0 for unused entries).
+ * @param array_size   Must be TACO_GHOST_MAX_ENTRIES (7) for validation.
+ * @return             TACOZ_OK on success; negative error code otherwise.
  *
- * Requirements:
- *  - `src_files[i]` exist and are readable regular files.
- *  - `arc_files[i]` are the exact names to write into the ZIP (no normalization).
- *  - `num_files > 0`.
+ * @note The function automatically detects how many entries are valid by counting
+ *       non-zero pairs from the start of the arrays.
+ * @note Both meta_offsets and meta_lengths arrays must have exactly 7 elements.
+ */
+TACOZIP_EXPORT
+int tacozip_create_multi(const char *zip_path,
+                        const char * const *src_files,
+                        const char * const *arc_files,
+                        size_t num_files,
+                        const uint64_t *meta_offsets,
+                        const uint64_t *meta_lengths,
+                        size_t array_size);
+
+/**
+ * @brief Read all metadata entries from the TACO Ghost.
+ *
+ * @param zip_path  Path to an existing archive.
+ * @param out       Output structure filled with all metadata entries on success.
+ * @return          TACOZ_OK on success; negative error code otherwise.
+ *
+ * @note The returned structure contains a count field indicating how many
+ *       entries are valid (0-7).
+ */
+TACOZIP_EXPORT
+int tacozip_read_ghost_multi(const char *zip_path, taco_meta_array_t *out);
+
+/**
+ * @brief Update all metadata entries in the ghost in place.
+ *
+ * @param zip_path     Path to an existing archive created by this library.
+ * @param meta_offsets Array of 7 uint64_t offsets (use 0 for unused entries).
+ * @param meta_lengths Array of 7 uint64_t lengths (use 0 for unused entries).
+ * @param array_size   Must be TACO_GHOST_MAX_ENTRIES (7) for validation.
+ * @return             TACOZ_OK on success; negative error code otherwise.
+ *
+ * @note The function automatically detects how many entries are valid by counting
+ *       non-zero pairs from the start of the arrays.
+ */
+TACOZIP_EXPORT
+int tacozip_update_ghost_multi(const char *zip_path,
+                              const uint64_t *meta_offsets,
+                              const uint64_t *meta_lengths,
+                              size_t array_size);
+
+/* ========================================================================== */
+/*                               SINGLE-ENTRY API                             */
+/* ========================================================================== */
+
+/**
+ * @brief Create a ZIP64 archive with a single metadata entry (legacy API).
+ *
+ * This function is maintained for backward compatibility. It creates a ghost
+ * with only one metadata entry.
  *
  * @param zip_path    Output path for the archive.
  * @param src_files   Array of absolute or relative filesystem paths (N elements).
@@ -140,9 +214,6 @@ enum {
  * @param meta_offset Metadata offset to store in the ghost (bytes).
  * @param meta_length Metadata length to store in the ghost (bytes).
  * @return            TACOZ_OK on success; negative error code otherwise.
- *
- * @note If built with `_FILE_OFFSET_BITS=64`, very large archives are supported.
- * @note If built with `TACOZ_SET_UTF8_FLAG=1`, the UTF-8 GP bit is set on entries.
  */
 TACOZIP_EXPORT
 int tacozip_create(const char *zip_path,
@@ -153,64 +224,53 @@ int tacozip_create(const char *zip_path,
                    uint64_t meta_length);
 
 /**
- * @brief Read the (offset,length) pair from the 64-byte TACO Ghost at file start.
+ * @brief Read the first metadata entry from the ghost (legacy API).
  *
  * @param zip_path  Path to an existing archive.
- * @param out       Output pointer filled with {offset,length} on success.
- * @return          TACOZ_OK on success; TACOZ_ERR_PARAM if args null;
- *                  TACOZ_ERR_IO if file I/O fails; TACOZ_ERR_INVALID_GHOST if
- *                  the first 64 bytes do not match the expected ghost layout.
- *
- * @warning This function only trusts bytes 0..63. It does not parse the Central
- *          Directory nor validate the rest of the archive.
+ * @param out       Output pointer filled with first entry on success.
+ * @return          TACOZ_OK on success; negative error code otherwise.
  */
 TACOZIP_EXPORT
 int tacozip_read_ghost(const char *zip_path, taco_meta_ptr_t *out);
 
 /**
- * @brief Update the ghost’s (offset,length) in place.
+ * @brief Update the first metadata entry in the ghost (legacy API).
  *
  * @param zip_path   Path to an existing archive created by this library.
- * @param new_offset New metadata offset to write at ghost[44..51] (LE).
- * @param new_length New metadata length to write at ghost[52..59] (LE).
+ * @param new_offset New metadata offset for first entry.
+ * @param new_length New metadata length for first entry.
  * @return           TACOZ_OK on success; negative error code otherwise.
- *
- * @note The routine verifies the surrounding ghost structure before writing.
- * @note Safe for updating the ghost after external metadata is appended.
  */
 TACOZIP_EXPORT
 int tacozip_update_ghost(const char *zip_path,
                          uint64_t new_offset,
                          uint64_t new_length);
 
-
 /* ========================================================================== */
 /*                             Implementation notes                           */
 /* ========================================================================== */
 /*
- * 1) ZIP64 Policy
- *    - All size/offset 32-bit fields in CDFH/EOCD use truncated maxima
- *      (0xFFFF / 0xFFFFFFFF) per ZIP64 rules; true values live in ZIP64 extras.
+ * 1) Automatic Count Detection
+ *    - The library counts valid entries by scanning from index 0 until it finds
+ *      the first (offset=0, length=0) pair.
+ *    - Example: [1000, 2000, 0, 0, 0, 0, 0] + [500, 750, 0, 0, 0, 0, 0] = count=2
  *
- * 2) Data descriptors
- *    - LFH uses unknown sizes (0xFFFFFFFF) + GPFLAG bit 3 set; we append a
- *      ZIP64 data descriptor with signature 0x08074B50.
+ * 2) Ghost Storage Format
+ *    - Ghost stores exactly 7 pairs regardless of how many are valid
+ *    - Unused pairs are stored as (0, 0) for deterministic output
+ *    - Count byte allows efficient reading without scanning
  *
- * 3) Time fields
- *    - DOS time/date in LFH/CDFH are zeroed for determinism. If you later
- *      add real timestamps, ensure DOS packing and reproducibility settings.
+ * 3) Backward Compatibility
+ *    - Legacy single-entry functions still work
+ *    - They read/write only the first entry, leaving others as (0, 0)
+ *    - New files created with legacy API can be read with multi API
  *
- * 4) Filenames
- *    - The library never rewrites or validates names. Enforce policy in your
- *      caller (Python/R/Matlab/Julia frontends).
- *
- * 5) Portability
- *    - Use `_FILE_OFFSET_BITS=64` on POSIX. On Windows, the implementation
- *      provides large-file I/O via 64-bit off_t equivalents.
- *
- * 6) Determinism
- *    - With fixed input order and fixed metadata, output is stable across runs.
- */                      
+ * 4) Validation
+ *    - Arrays must be exactly 7 elements for safety
+ *    - Function will return TACOZ_ERR_PARAM if array_size != 7
+ *    - Count is automatically computed, not passed by user
+ */
+
 #ifdef __cplusplus
 } /* extern "C" */
 #endif

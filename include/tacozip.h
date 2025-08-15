@@ -3,16 +3,16 @@
 
 /**
  * @file tacozip.h
- * @brief Minimal ZIP64 (STORE-only) writer with a fixed "TACO Ghost"
+ * @brief ZIP64 (STORE-only) writer with libzip backend and a fixed "TACO Ghost"
  *        Local File Header at byte 0. The ghost supports up to 7 metadata entries.
  *
  * ## Overview
- * - Always ZIP64 ("CIP64"): version_needed=45, ZIP64 extras for sizes and offsets,
- *   ZIP64 EOCD + locator, plus classic EOCD with truncated fields.
- * - STORE-only (method=0). Sizes are streamed via ZIP64 data descriptors.
- * - A fixed "TACO Ghost" LFH is written at file start to carry
- *   up to 7 (offset,length) metadata pairs for external indices. This ghost **does not**
- *   appear in the Central Directory.
+ * - Always ZIP64: forces ZIP64 format regardless of file sizes for serialization consistency.
+ * - STORE-only (method=0). No compression for maximum throughput.
+ * - Uses libzip as the underlying ZIP implementation (no more custom ZIP code).
+ * - A "TACO Ghost" entry is written first so its LFH appears at file start.
+ *   This ghost **does** appear in the Central Directory as a normal file entry.
+ * - Up to 7 (offset,length) metadata pairs for external indices stored in ghost payload.
  * - No filename normalization in C; callers must pass sanitized archive names.
  *
  * ## Threading
@@ -24,6 +24,9 @@
  * ## Encoding
  * - If compiled with `TACOZ_SET_UTF8_FLAG=1`, the general purpose bit 11 is set
  *   (caller guarantees archive names are UTF-8). Otherwise, bit 11 is 0.
+ *
+ * ## Dependencies
+ * - Requires libzip (L-I-B-Z-I-P) for all ZIP operations.
  *
  * ## ABI / Visibility
  * - Functions are exported with default visibility when building the shared lib.
@@ -61,32 +64,23 @@ extern "C" {
 /*
  * TACO Ghost Layout (variable size, minimum 160 bytes):
  *
- *  [0..3]   : 0x04034B50 (Local File Header signature)
- *  [4..5]   : version_needed = 45 (ZIP64 required)
- *  [6..7]   : general_purpose_bit_flag = 0
- *  [8..9]   : compression_method = 0 (STORE)
- *  [10..13] : last_mod_time/date = 0
- *  [14..17] : crc32 = 0
- *  [18..21] : compressed_size = 0
- *  [22..25] : uncompressed_size = 0
- *  [26..27] : file_name_length = 10 ("TACO_GHOST")
- *  [28..29] : extra_field_length = 116 (4 + 7*16 = count + 7 pairs)
- *  [30..39] : file_name = "TACO_GHOST"
- *  [40..41] : extra_header_id = 0x7454
- *  [42..43] : extra_data_size = 112 (7*16 bytes for pairs)
- *  [44]     : uint8_t count (number of valid entries, 0-7)
- *  [45..47] : padding (3 bytes for alignment)
- *  [48..159]: 7 pairs of uint64_le (offset, length) - total 112 bytes
+ * The ghost entry is a regular ZIP entry but with special content:
+ * - Entry name: "TACO_GHOST"
+ * - Method: STORE (0)
+ * - Content: binary payload with metadata pairs
  *
- * This LFH is intentionally omitted from the CDR.
+ * Ghost payload format:
+ *  [0]      : uint8_t count (number of valid entries, 0-7)
+ *  [1..3]   : padding (3 bytes for alignment)
+ *  [4..115] : 7 pairs of uint64_le (offset, length) - total 112 bytes
+ *
+ * Total payload size: 116 bytes (4 + 7*16)
  */
 
 #define TACO_GHOST_MAX_ENTRIES   7u
-#define TACO_GHOST_SIZE          160u
+#define TACO_GHOST_PAYLOAD_SIZE  116u  /* 4 bytes header + 7*16 bytes pairs */
 #define TACO_GHOST_NAME          "TACO_GHOST"
 #define TACO_GHOST_NAME_LEN      10u
-#define TACO_GHOST_EXTRA_ID      0x7454u  /* 'tT' little-endian (project-assigned) */
-#define TACO_GHOST_EXTRA_SIZE    116u     /* 4 bytes header + 7*16 bytes pairs */
 
 /** @brief Single metadata entry */
 typedef struct {
@@ -130,7 +124,7 @@ typedef struct {
 enum {
     TACOZ_OK                =  0,  /**< Success. */
     TACOZ_ERR_IO            = -1,  /**< I/O error (open/read/write/close/flush). */
-    TACOZ_ERR_LIBZIP        = -2,  /**< Reserved (historical); currently unused. */
+    TACOZ_ERR_LIBZIP        = -2,  /**< libzip error. */
     TACOZ_ERR_INVALID_GHOST = -3,  /**< Ghost bytes malformed or unexpected. */
     TACOZ_ERR_PARAM         = -4   /**< Invalid argument(s). */
 };
@@ -143,6 +137,7 @@ enum {
  * @brief Create a ZIP64 archive with a TACO Ghost supporting up to 7 metadata entries.
  *
  * This is the new primary API that supports multiple parquet metadata files.
+ * Uses libzip backend with forced ZIP64 format and STORE compression.
  * 
  * @param zip_path     Output path for the archive.
  * @param src_files    Array of absolute or relative filesystem paths (N elements).
@@ -269,6 +264,12 @@ int tacozip_update_ghost(const char *zip_path,
  *    - Arrays must be exactly 7 elements for safety
  *    - Function will return TACOZ_ERR_PARAM if array_size != 7
  *    - Count is automatically computed, not passed by user
+ *
+ * 5) libzip Backend
+ *    - All ZIP operations use libzip for robustness
+ *    - Always forces ZIP64 format regardless of file sizes
+ *    - Always uses STORE method (no compression)
+ *    - Ghost entry is included in central directory as normal entry
  */
 
 #ifdef __cplusplus

@@ -19,5 +19,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [0.4.0] - 2025-08-10
 ### Added
+- Replace of my own ZIP implementation with libzip.
+
+
+## [0.3.0] - 2025-08-10
+### Added
 - First public prototype of C core and Python bindings.
 

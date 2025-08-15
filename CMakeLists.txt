@@ -1,9 +1,9 @@
 cmake_minimum_required(VERSION 3.15)
 
 # -----------------------------------------------------------------------------
-# tacozip — CIP64 (always ZIP64), STORE-only writer with TACO Ghost supporting
+# tacozip — ZIP64 (always ZIP64), STORE-only writer with TACO Ghost supporting
 # up to 7 metadata entries. Each entry points to a different parquet file.
-# Strongly inspired by libzip's streaming layout; specialized for CIP64.
+# Now uses libzip backend instead of custom ZIP implementation.
 #
 # Quickstart:
 #   cmake --preset release
@@ -11,9 +11,9 @@ cmake_minimum_required(VERSION 3.15)
 #   cmake --install --preset release
 # -----------------------------------------------------------------------------
 project(tacozip
-  VERSION 0.3.0
+  VERSION 0.4.0
   LANGUAGES C
-  DESCRIPTION "TACO ZIP: ZIP64 archive with TACO Ghost supporting up to 7 metadata entries"
+  DESCRIPTION "TACO ZIP: ZIP64 archive with TACO Ghost supporting up to 7 metadata entries (libzip backend)"
 )
 
 # Export all symbols on Windows if no .def is provided (helps produce tacozip.dll)
@@ -35,15 +35,30 @@ option(TACOZIP_ENABLE_SANITIZERS      "Enable sanitizers (Debug-only, GCC/Clang)
 option(TACOZIP_SET_UTF8_FLAG          "Set UTF-8 general purpose bit (compile-time)" OFF)
 
 # Buffer tunables (compile-time constants used by the C code)
-set(TACOZ_OUT_BUFSZ  4194304  CACHE STRING "Output buffer size (bytes), default 4 MiB")
 set(TACOZ_COPY_BUFSZ 1048576  CACHE STRING "Copy buffer size (bytes), default 1 MiB")
 
 # Multi-parquet configuration (informational only - hardcoded in source)
 set(TACO_GHOST_MAX_ENTRIES 7 CACHE STRING "Maximum metadata entries in ghost (hardcoded)")
-set(TACO_GHOST_SIZE 160 CACHE STRING "Size of TACO ghost in bytes (hardcoded)")
+set(TACO_GHOST_PAYLOAD_SIZE 116 CACHE STRING "Size of TACO ghost payload in bytes (hardcoded)")
 
 include(GNUInstallDirs)
 include(CheckSymbolExists)
+
+# ------------------------------- dependencies ------------------------------
+# Find libzip (required dependency)
+find_package(PkgConfig QUIET)
+if(PkgConfig_FOUND)
+  pkg_check_modules(LIBZIP REQUIRED libzip>=1.0.0)
+else()
+  # Fallback for systems without pkg-config
+  find_path(LIBZIP_INCLUDE_DIRS zip.h)
+  find_library(LIBZIP_LIBRARIES NAMES zip)
+  if(NOT LIBZIP_INCLUDE_DIRS OR NOT LIBZIP_LIBRARIES)
+    message(FATAL_ERROR "libzip not found. Please install libzip development packages.")
+  endif()
+  set(LIBZIP_CFLAGS "")
+  set(LIBZIP_LDFLAGS "")
+endif()
 
 # ------------------------------- feature probes ------------------------------
 # Cheap preallocation; exposed via config header for consumers.
@@ -76,18 +91,28 @@ target_include_directories(tacozip
     $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>
     $<BUILD_INTERFACE:${CMAKE_CURRENT_BINARY_DIR}/generated>
     $<INSTALL_INTERFACE:include>
+  PRIVATE
+    ${LIBZIP_INCLUDE_DIRS}
 )
 if(TACOZIP_BUILD_STATIC)
   target_include_directories(tacozip_static PUBLIC
     $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>
     $<BUILD_INTERFACE:${CMAKE_CURRENT_BINARY_DIR}/generated>
     $<INSTALL_INTERFACE:include>
+  PRIVATE
+    ${LIBZIP_INCLUDE_DIRS}
   )
 endif()
 
 target_compile_features(tacozip PUBLIC c_std_11)
 if(TACOZIP_BUILD_STATIC)
   target_compile_features(tacozip_static PUBLIC c_std_11)
+endif()
+
+# Link libzip
+target_link_libraries(tacozip PRIVATE ${LIBZIP_LIBRARIES})
+if(TACOZIP_BUILD_STATIC)
+  target_link_libraries(tacozip_static PRIVATE ${LIBZIP_LIBRARIES})
 endif()
 
 # Large-file + GNU ext guards; UTF-8 flag + tunables
@@ -99,9 +124,10 @@ foreach(t IN ITEMS tacozip tacozip_static)
         _FILE_OFFSET_BITS=64
         _GNU_SOURCE
         $<$<BOOL:${TACOZIP_SET_UTF8_FLAG}>:TACOZ_SET_UTF8_FLAG=1>
-        TACOZ_OUT_BUFSZ=${TACOZ_OUT_BUFSZ}
         TACOZ_COPY_BUFSZ=${TACOZ_COPY_BUFSZ}
     )
+    target_compile_options(${t} PRIVATE ${LIBZIP_CFLAGS})
+    target_link_options(${t} PRIVATE ${LIBZIP_LDFLAGS})
   endif()
 endforeach()
 
@@ -249,13 +275,13 @@ message(STATUS "Build type             : ${CMAKE_BUILD_TYPE}")
 message(STATUS "Shared lib             : ${BUILD_SHARED_LIBS}")
 message(STATUS "Static lib (extra)     : ${TACOZIP_BUILD_STATIC}")
 message(STATUS "UTF-8 flag default     : ${TACOZIP_SET_UTF8_FLAG}")
-message(STATUS "Out buffer (bytes)     : ${TACOZ_OUT_BUFSZ}")
 message(STATUS "Copy buffer (bytes)    : ${TACOZ_COPY_BUFSZ}")
 message(STATUS "Ghost max entries      : ${TACO_GHOST_MAX_ENTRIES} (hardcoded)")
-message(STATUS "Ghost size (bytes)     : ${TACO_GHOST_SIZE} (hardcoded)")
+message(STATUS "Ghost payload (bytes)  : ${TACO_GHOST_PAYLOAD_SIZE} (hardcoded)")
 message(STATUS "IPO/LTO                : ${TACOZIP_ENABLE_IPO}")
 message(STATUS "Sanitizers             : ${TACOZIP_ENABLE_SANITIZERS}")
 message(STATUS "posix_fallocate()      : ${TACOZ_HAVE_POSIX_FALLOCATE}")
+message(STATUS "libzip found           : ${LIBZIP_LIBRARIES}")
 message(STATUS "Install prefix         : ${CMAKE_INSTALL_PREFIX}")
 message(STATUS "SKBUILD defined        : $<IF:$<BOOL:${SKBUILD}>,YES,NO>")
 message(STATUS "================================")

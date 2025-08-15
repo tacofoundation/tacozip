@@ -8,7 +8,6 @@ version = "0.4.0"
 description = "TACO ZIP: ZIP64 archive with TACO Ghost supporting up to 7 metadata entries"
 readme = "README.md"
 license = "MIT"
-license-files = ["LICENSE*", "COPYING*"]
 authors = [
     { name = "Cesar Aybar", email = "csaybar@gmail.com" }
 ]

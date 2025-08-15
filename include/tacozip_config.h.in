@@ -3,5 +3,4 @@
 /* Feature probes */
 #cmakedefine01 TACOZ_HAVE_POSIX_FALLOCATE
 /* Tunables (bytes) */
-#define TACOZ_OUT_BUFSZ  @TACOZ_OUT_BUFSZ@
 #define TACOZ_COPY_BUFSZ @TACOZ_COPY_BUFSZ@

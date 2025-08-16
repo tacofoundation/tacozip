@@ -2,7 +2,7 @@
 
 | Benchmark | Builds | Python Test | 
 |:-:|:-:| :-:|
-|[![Open In Colab](https://colab.research.google.com/assets/colab-badge.svg)](https://colab.research.google.com/drive/1MVt0uyi8Dmu_hIpNwqj1T4rw0ifFqBG-?usp=sharing)|  ![PyPI - Wheel](https://img.shields.io/pypi/wheel/tacozip) | [![codecov](https://codecov.io/gh/tacofoundation/tacozip/branch/main/graph/badge.svg)](https://codecov.io/gh/tacofoundation/tacozip) |
+|[![Open In Colab](https://colab.research.google.com/assets/colab-badge.svg)](https://colab.research.google.com/drive/1MVt0uyi8Dmu_hIpNwqj1T4rw0ifFqBG-?usp=sharing)|  [![PyPI - Wheel](https://img.shields.io/pypi/wheel/tacozip)](https://pypi.org/project/tacozip/#files) | [![codecov](https://codecov.io/gh/tacofoundation/tacozip/branch/main/graph/badge.svg)](https://codecov.io/gh/tacofoundation/tacozip) |
 
 
 

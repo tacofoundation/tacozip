@@ -6,6 +6,7 @@ TACOZ_ERR_IO = -1
 TACOZ_ERR_LIBZIP = -2
 TACOZ_ERR_INVALID_GHOST = -3
 TACOZ_ERR_PARAM = -4
+TACOZ_ERR_NOT_FOUND = -5
 
 # Error messages
 ERROR_MESSAGES = {
@@ -13,6 +14,7 @@ ERROR_MESSAGES = {
     TACOZ_ERR_LIBZIP: "Reserved (historical); currently unused",
     TACOZ_ERR_INVALID_GHOST: "Ghost bytes malformed or unexpected",
     TACOZ_ERR_PARAM: "Invalid argument(s)",
+    TACOZ_ERR_NOT_FOUND: "File not found in archive",
 }
 
 # TACO Ghost constants

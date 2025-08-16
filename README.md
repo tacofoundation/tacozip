@@ -2,9 +2,7 @@
 
 | Benchmark | Builds | Python Test | 
 |:-:|:-:| :-:|
-|[![Open In Colab](https://colab.research.google.com/assets/colab-badge.svg)](https://colab.research.google.com/drive/1MVt0uyi8Dmu_hIpNwqj1T4rw0ifFqBG-?usp=sharing)|  [![PyPI - Wheel](https://img.shields.io/pypi/wheel/tacozip)](https://pypi.org/project/tacozip/#files) | [![codecov](https://codecov.io/gh/tacofoundation/tacozip/branch/main/graph/badge.svg)](https://codecov.io/gh/tacofoundation/tacozip) |
-
-
+|[![Open In Colab](https://colab.research.google.com/assets/colab-badge.svg)](https://colab.research.google.com/drive/1MVt0uyi8Dmu_hIpNwqj1T4rw0ifFqBG-?usp=sharing)|  [![PyPI - Wheel](https://img.shields.io/pypi/wheel/tacozip)](https://pypi.org/project/tacozip/#files) | [![tacozip-python](https://github.com/tacofoundation/tacozip/actions/workflows/test_py.yml/badge.svg)](https://github.com/tacofoundation/tacozip/actions/workflows/test_py.yml) |
 
 
 **tacozip** is a specialized ZIP64 archive writer designed for efficient packaging of large datasets with embedded metadata. By storing metadata pointers directly in the archive header, it enables direct data access without requiring a separate Central File Directory (CFD) scan. Perfect for data pipelines that need fast, uncompressed storage with multiple index references.

@@ -17,7 +17,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
-## [0.5.0] - 2025-08-16
+## [0.5.2] - 2025-08-16
+### Added
+- Small bug in the wheel.yml file that caused the package to not be built correctly.
+
+
+## [0.5.1] - 2025-08-16
 ### Added
 - Added tacozip_replace_file() function to replace file content while preserving ghost header.
 - Documentation updates for new features and usage examples.

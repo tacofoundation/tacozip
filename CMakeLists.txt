@@ -48,9 +48,11 @@ include(CheckSymbolExists)
 # Find libzip (required dependency)
 find_package(PkgConfig QUIET)
 if(PkgConfig_FOUND)
-  pkg_check_modules(LIBZIP REQUIRED libzip>=1.0.0)
-else()
-  # Fallback for systems without pkg-config
+  pkg_check_modules(LIBZIP libzip>=1.0.0)
+endif()
+
+# Fallback for systems without pkg-config or when pkg-config fails
+if(NOT LIBZIP_FOUND)
   find_path(LIBZIP_INCLUDE_DIRS zip.h)
   find_library(LIBZIP_LIBRARIES NAMES zip)
   if(NOT LIBZIP_INCLUDE_DIRS OR NOT LIBZIP_LIBRARIES)
@@ -58,7 +60,11 @@ else()
   endif()
   set(LIBZIP_CFLAGS "")
   set(LIBZIP_LDFLAGS "")
+  set(LIBZIP_FOUND TRUE)
 endif()
+
+message(STATUS "Found libzip: ${LIBZIP_LIBRARIES}")
+message(STATUS "libzip include dirs: ${LIBZIP_INCLUDE_DIRS}")
 
 # ------------------------------- feature probes ------------------------------
 # Cheap preallocation; exposed via config header for consumers.
@@ -139,7 +145,7 @@ if(NOT MSVC)
   endif()
 endif()
 
-# Warnings (+ optional as errors)
+# Warnings (+ optional as errors) with better compiler detection
 foreach(t IN ITEMS tacozip tacozip_static)
   if(TARGET ${t})
     if(TACOZIP_STRICT_WARNINGS)
@@ -153,14 +159,19 @@ foreach(t IN ITEMS tacozip tacozip_static)
       if(MSVC)
         target_compile_options(${t} PRIVATE /WX)
       else()
-        target_compile_options(${t} PRIVATE -Werror)
+        # Only add nullability extension warning suppression for Clang
+        if(CMAKE_C_COMPILER_ID MATCHES "Clang")
+          target_compile_options(${t} PRIVATE -Werror -Wno-error=nullability-extension)
+        else()
+          target_compile_options(${t} PRIVATE -Werror)
+        endif()
       endif()
     endif()
   endif()
 endforeach()
 
-# Suppress nullability extension warnings on Apple platforms (Clang)
-if(APPLE)
+# Suppress nullability extension warnings globally for Clang (libzip compatibility)
+if(CMAKE_C_COMPILER_ID MATCHES "Clang")
     add_compile_options(-Wno-nullability-extension)
 endif()
 
@@ -271,6 +282,25 @@ else()
     LIBRARY DESTINATION tacozip   # Linux/macOS (.so/.dylib)
     ARCHIVE DESTINATION tacozip
   )
+  
+  # On Windows, also install runtime dependencies
+  if(WIN32 AND CMAKE_PREFIX_PATH)
+    # Find and install zlib and libzip DLLs
+    foreach(dep_name IN ITEMS "zlib1" "zip")
+      find_file(${dep_name}_DLL 
+        NAMES "${dep_name}.dll"
+        PATHS ${CMAKE_PREFIX_PATH}
+        PATH_SUFFIXES bin
+        NO_DEFAULT_PATH
+      )
+      if(${dep_name}_DLL)
+        install(FILES ${${dep_name}_DLL} DESTINATION tacozip)
+        message(STATUS "Will install ${dep_name}.dll: ${${dep_name}_DLL}")
+      else()
+        message(WARNING "${dep_name}.dll not found in CMAKE_PREFIX_PATH")
+      endif()
+    endforeach()
+  endif()
 endif()
 
 # Build summary (helps users confirm toggles)

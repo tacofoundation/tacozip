@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """
 Pre-build script to ensure the native library is available before wheel building.
-Updated for new modular package structure.
+Updated for new modular package structure and better Windows path handling.
 """
 
 import sys
@@ -43,6 +43,33 @@ def fix_newlines_for_macos():
             print(f"prebuild.py: Warning - {file_path} not found")
     
     print(f"prebuild.py: Fixed {fixed_count} files")
+
+def copy_windows_dependencies(package_dir):
+    """Copy Windows DLL dependencies to the package directory."""
+    if sys.platform != "win32":
+        return
+    
+    print("prebuild.py: Copying Windows DLL dependencies...")
+    deps_path = Path("C:/deps/bin")
+    
+    if not deps_path.exists():
+        print(f"prebuild.py: Warning - Dependencies path not found: {deps_path}")
+        return
+    
+    dlls_to_copy = ["zlib1.dll", "zip.dll"]
+    copied_count = 0
+    
+    for dll_name in dlls_to_copy:
+        src_dll = deps_path / dll_name
+        if src_dll.exists():
+            dest_dll = package_dir / dll_name
+            shutil.copy2(src_dll, dest_dll)
+            print(f"prebuild.py: Copied {dll_name}")
+            copied_count += 1
+        else:
+            print(f"prebuild.py: Warning - {dll_name} not found at {src_dll}")
+    
+    print(f"prebuild.py: Copied {copied_count} Windows DLLs")
 
 def main():
     print("=== prebuild.py: Starting pre-build process ===")
@@ -131,6 +158,10 @@ def main():
         if sys.platform == "win32":
             if shutil.which("ninja"):
                 configure_cmd.extend(["-G", "Ninja"])
+            # Add Windows dependency paths if they exist
+            deps_path = "C:/deps"
+            if Path(deps_path).exists():
+                configure_cmd.append(f"-DCMAKE_PREFIX_PATH={deps_path}")
         elif sys.platform == "darwin":
             # Handle macOS universal2 builds
             if shutil.which("ninja"):
@@ -180,6 +211,10 @@ def main():
                 print(f"prebuild.py: Copying {src} to {dest_path}")
                 shutil.copy2(src, dest_path)
                 print(f"prebuild.py: Successfully copied library")
+                
+                # Copy Windows dependencies after successful build
+                copy_windows_dependencies(package_dir)
+                
                 return 0
         
         print("prebuild.py: ERROR: No library found after build")

@@ -1,5 +1,12 @@
 # tacozip
 
+| Benchmark | Builds | Python Test | 
+|:-:|:-:| :-:|
+|[![Open In Colab](https://colab.research.google.com/assets/colab-badge.svg)](https://colab.research.google.com/drive/1MVt0uyi8Dmu_hIpNwqj1T4rw0ifFqBG-?usp=sharing)|  ![PyPI - Wheel](https://img.shields.io/pypi/wheel/tacozip) | [![codecov](https://codecov.io/gh/tacofoundation/tacozip/branch/main/graph/badge.svg)](https://codecov.io/gh/tacofoundation/tacozip) |
+
+
+
+
 **tacozip** is a specialized ZIP64 archive writer designed for efficient packaging of large datasets with embedded metadata. By storing metadata pointers directly in the archive header, it enables direct data access without requiring a separate Central File Directory (CFD) scan. Perfect for data pipelines that need fast, uncompressed storage with multiple index references.
 
 ## ✨ Why tacozip?
@@ -17,51 +24,6 @@
 ```bash
 pip install tacozip
 ```
-
-### Basic Usage
-
-```python
-import tacozip
-
-# Create archive with multiple metadata references
-files = ["data1.parquet", "data2.parquet", "data3.parquet"]
-names = ["part1.parquet", "part2.parquet", "part3.parquet"]
-
-# Metadata pointers (offset, length) for external indices
-offsets = [1000, 2500, 4200, 0, 0, 0, 0]  # Up to 7 entries
-lengths = [300, 150, 800, 0, 0, 0, 0]     # 0 = unused slot
-
-# Create archive
-tacozip.create_multi(
-    "dataset.taco.zip",
-    files, names,
-    offsets, lengths
-)
-
-# Read metadata later
-metadata = tacozip.read_ghost_multi("dataset.taco.zip")
-print(f"Found {metadata.count} metadata entries")
-for i in range(metadata.count):
-    print(f"Entry {i}: offset={metadata.entries[i].offset}, length={metadata.entries[i].length}")
-```
-
-## 📋 API Reference
-
-### Multi-Entry API
-
-| Function | Description |
-|----------|-------------|
-| `create_multi(zip_path, src_files, arc_files, offsets, lengths)` | Create archive with up to 7 metadata entries |
-| `read_ghost_multi(zip_path)` | Read all metadata entries from archive |
-| `update_ghost_multi(zip_path, offsets, lengths)` | Update metadata entries in existing archive |
-
-### Single-Entry API
-
-| Function | Description |
-|----------|-------------|
-| `create(zip_path, src_files, arc_files, offset, length)` | Create archive with single metadata entry |
-| `read_ghost(zip_path)` | Read first metadata entry |
-| `update_ghost(zip_path, offset, length)` | Update first metadata entry |
 
 ## 🏗️ Architecture
 

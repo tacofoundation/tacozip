@@ -1,0 +1,6 @@
+codecov:
+  disable_default_path_fixes: true
+
+parsers:
+  pycov:
+    disable: true

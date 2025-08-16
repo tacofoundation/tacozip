@@ -265,45 +265,14 @@ jobs:
         # Generate coverage.xml with correct paths for your package structure
         pytest tests/ --cov=tacozip --cov-report=xml:coverage.xml --cov-report=term-missing
 
-    - name: Fix coverage paths for Codecov (clients/python structure)
-      run: |
-        echo "🔧 Fixing coverage file paths for clients/python package structure"
-        
-        # Show current working directory and file location
-        echo "Working directory: $(pwd)"
-        echo "Coverage file exists: $(ls -la coverage.xml)"
-        
-        # Show original paths in coverage.xml
-        echo "Original coverage paths:"
-        grep -n 'filename=' coverage.xml | head -3
-        
-        # Fix paths: your coverage.xml has absolute paths like:
-        # /Users/runner/work/tacozip/tacozip/clients/python/tacozip/loader.py
-        # But Codecov needs: clients/python/tacozip/loader.py
-        
-        # Replace the absolute path prefix with the correct relative path
-        sed -i.bak 's|filename="/Users/runner/work/tacozip/tacozip/clients/python/|filename="clients/python/|g' coverage.xml
-        
-        # Handle any other absolute paths that might exist
-        sed -i.bak 's|filename="/Users/runner/work/tacozip/tacozip/|filename="|g' coverage.xml
-        
-        # Show fixed paths
-        echo "Fixed coverage paths:"
-        grep -n 'filename=' coverage.xml | head -3
-        
-        # Verify the file is still valid
-        echo "Coverage file lines: $(wc -l < coverage.xml)"
-
     - name: Upload coverage reports to Codecov
       uses: codecov/codecov-action@v5
       with:
         token: ${{ secrets.CODECOV_TOKEN }}
-        slug: tacofoundation/tacozip
-        files: coverage.xml                    # File is in clients/python/
-        root_dir: ${{ github.workspace }}     # Repository root
+        files: clients/python/coverage.xml
+        root_dir: ${{ github.workspace }}
         flags: macos-python${{ matrix.python-version }}
-        name: macos-native-python${{ matrix.python-version }}
-        fail_ci_if_error: true               # Enable to see errors
+        fail_ci_if_error: true
         verbose: true
 
     - name: Simulate wheel test (same as wheels.yml)

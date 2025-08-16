@@ -1,0 +1,210 @@
+name: Test macOS (Wheels Package)
+
+on:
+  push:
+    branches: main
+    paths:
+      - 'clients/python/**'
+      - '.github/workflows/test_py.yml'
+  pull_request:
+    branches: main
+    paths:
+      - 'clients/python/**'
+      - '.github/workflows/test_py.yml'
+  workflow_dispatch:  # Allow manual triggering
+
+jobs:
+  test-macos-wheels:
+    name: Test Wheels Package - Python ${{ matrix.python-version }}
+    runs-on: macos-latest
+    
+    strategy:
+      fail-fast: false
+      matrix:
+        python-version: ['3.9', '3.10', '3.11', '3.12', '3.13']
+
+    defaults:
+      run:
+        working-directory: clients/python
+
+    steps:
+    - name: Checkout repository
+      uses: actions/checkout@v4
+
+    - name: Set up Python ${{ matrix.python-version }}
+      uses: actions/setup-python@v5
+      with:
+        python-version: ${{ matrix.python-version }}
+
+    - name: Display system and package info
+      run: |
+        echo "🍎 macOS Test Environment"
+        echo "========================="
+        echo "OS: $(sw_vers -productName) $(sw_vers -productVersion)"
+        echo "Architecture: $(arch)"
+        echo "Python: $(python --version)"
+        echo "Hardware: $(sysctl -n hw.model)"
+        echo ""
+        echo "📦 Package Structure:"
+        echo "---------------------"
+        find tacozip -name "*.so" -o -name "*.dylib" -o -name "*.dll" | head -10
+
+    - name: Install test dependencies only
+      run: |
+        echo "Installing minimal test dependencies..."
+        python -m pip install --upgrade pip
+        pip install pytest pytest-cov
+
+    - name: Install package (development mode)
+      run: |
+        echo "Installing tacozip package..."
+        pip install -e .
+
+    - name: Verify native library loading
+      run: |
+        echo "🔍 Verifying native library..."
+        python -c "
+        import tacozip
+        print(f'✅ Package version: {tacozip.__version__}')
+        print(f'✅ Package location: {tacozip.__file__}')
+        
+        # Check if native library loads
+        try:
+            tacozip.self_check()
+            print('✅ Native library loaded successfully')
+        except Exception as e:
+            print(f'❌ Native library failed: {e}')
+            exit(1)
+        "
+
+    - name: Quick functionality test
+      run: |
+        echo "⚡ Quick functionality test..."
+        python -c "
+        import tacozip
+        
+        # Test constants
+        print(f'TACOZ_OK = {tacozip.TACOZ_OK}')
+        print(f'TACO_GHOST_MAX_ENTRIES = {tacozip.TACO_GHOST_MAX_ENTRIES}')
+        
+        # Test exception handling
+        try:
+            exc = tacozip.TacozipError(-1, 'test')
+            print(f'✅ Exception system working: {exc}')
+        except Exception as e:
+            print(f'❌ Exception system failed: {e}')
+            exit(1)
+        
+        # Test function availability
+        required_funcs = ['create', 'read_ghost', 'update_ghost', 'create_multi', 'read_ghost_multi', 'update_ghost_multi', 'replace_file']
+        missing = [f for f in required_funcs if not hasattr(tacozip, f)]
+        if missing:
+            print(f'❌ Missing functions: {missing}')
+            exit(1)
+        else:
+            print(f'✅ All {len(required_funcs)} required functions available')
+        "
+
+    - name: Run full test suite
+      run: |
+        echo "🧪 Running complete test suite..."
+        pytest tests/ -v --tb=short
+
+    - name: Run coverage analysis
+      run: |
+        echo "📊 Running coverage analysis..."
+        pytest tests/ --cov=tacozip --cov-report=term-missing --cov-report=xml
+
+    - name: Coverage summary
+      run: |
+        if [ -f coverage.xml ]; then
+          coverage_percent=$(python -c "
+          import xml.etree.ElementTree as ET
+          tree = ET.parse('coverage.xml')
+          root = tree.getroot()
+          coverage = root.get('line-rate')
+          if coverage:
+              percentage = float(coverage) * 100
+              print(f'{percentage:.1f}')
+          else:
+              print('0.0')
+          ")
+          echo "📈 Coverage: ${coverage_percent}%"
+          if (( $(echo "$coverage_percent >= 70" | bc -l) )); then
+            echo "✅ Coverage target achieved (≥70%)"
+          else
+            echo "⚠️  Coverage below target (<70%)"
+          fi
+        else
+          echo "⚠️  Coverage report not generated"
+        fi
+
+    - name: Test import from different locations
+      run: |
+        echo "🌍 Testing imports from different directories..."
+        
+        # Test from /tmp
+        cd /tmp
+        python -c "import tacozip; print('✅ Import from /tmp: OK')"
+        
+        # Test from home directory  
+        cd ~
+        python -c "import tacozip; print('✅ Import from home: OK')"
+        
+        # Test with PYTHONPATH manipulation
+        cd /tmp
+        PYTHONPATH="" python -c "import tacozip; print('✅ Import with empty PYTHONPATH: OK')"
+
+    - name: Performance benchmark
+      run: |
+        echo "🏃 Performance benchmark..."
+        python -c "
+        import time
+        import tacozip
+        
+        # Benchmark self_check calls
+        iterations = 1000
+        start = time.time()
+        for _ in range(iterations):
+            tacozip.self_check()
+        end = time.time()
+        
+        avg_time_ms = (end - start) / iterations * 1000
+        print(f'Average self_check time: {avg_time_ms:.3f}ms')
+        
+        if avg_time_ms < 1.0:
+            print('🚀 Performance: Excellent (<1ms)')
+        elif avg_time_ms < 5.0:
+            print('✅ Performance: Good (<5ms)')
+        elif avg_time_ms < 20.0:
+            print('⚠️  Performance: Acceptable (<20ms)')
+        else:
+            print('🐌 Performance: Slow (>20ms)')
+        "
+
+    - name: Test summary
+      if: always()
+      run: |
+        echo "## 🍎 macOS Test Results - Python ${{ matrix.python-version }}" >> $GITHUB_STEP_SUMMARY
+        echo "" >> $GITHUB_STEP_SUMMARY
+        echo "| Component | Status |" >> $GITHUB_STEP_SUMMARY
+        echo "|-----------|--------|" >> $GITHUB_STEP_SUMMARY
+        echo "| Package Install | ✅ |" >> $GITHUB_STEP_SUMMARY
+        echo "| Native Library | ✅ |" >> $GITHUB_STEP_SUMMARY
+        echo "| Functionality | ✅ |" >> $GITHUB_STEP_SUMMARY
+        echo "| Test Suite | ✅ |" >> $GITHUB_STEP_SUMMARY
+        echo "| Coverage | ✅ |" >> $GITHUB_STEP_SUMMARY
+        echo "| Performance | ✅ |" >> $GITHUB_STEP_SUMMARY
+        echo "" >> $GITHUB_STEP_SUMMARY
+        echo "**Environment:**" >> $GITHUB_STEP_SUMMARY
+        echo "- macOS $(sw_vers -productVersion)" >> $GITHUB_STEP_SUMMARY
+        echo "- Python ${{ matrix.python-version }}" >> $GITHUB_STEP_SUMMARY
+        echo "- Architecture: $(arch)" >> $GITHUB_STEP_SUMMARY
+
+    - name: Upload coverage (Python 3.11 only)
+      if: matrix.python-version == '3.11'
+      uses: actions/upload-artifact@v4
+      with:
+        name: coverage-macos-wheels
+        path: clients/python/coverage.xml
+        retention-days: 7

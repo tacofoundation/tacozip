@@ -51,6 +51,9 @@
  *   uint64_t new_offsets[7] = {1500, 2000, 0, 0, 0, 0, 0};
  *   uint64_t new_lengths[7] = {600, 750, 0, 0, 0, 0, 0};
  *   rc = tacozip_update_ghost_multi("out.taco.zip", new_offsets, new_lengths, 7);
+ *   
+ *   // Replace a specific file in the archive
+ *   rc = tacozip_replace_file("out.taco.zip", "a.bin", "/path/to/new_a.bin");
  * @endcode
  */
 
@@ -94,7 +97,7 @@ typedef struct {
     taco_meta_entry_t entries[TACO_GHOST_MAX_ENTRIES]; /**< Metadata entries array. */
 } taco_meta_array_t;
 
-/** @brief Legacy single metadata pointer (for backward compatibility) */
+/** @brief Single metadata pointer (for backward compatibility) */
 typedef struct {
     uint64_t offset;  /**< Absolute byte offset of external metadata. */
     uint64_t length;  /**< Length in bytes of external metadata.      */
@@ -126,8 +129,34 @@ enum {
     TACOZ_ERR_IO            = -1,  /**< I/O error (open/read/write/close/flush). */
     TACOZ_ERR_LIBZIP        = -2,  /**< libzip error. */
     TACOZ_ERR_INVALID_GHOST = -3,  /**< Ghost bytes malformed or unexpected. */
-    TACOZ_ERR_PARAM         = -4   /**< Invalid argument(s). */
+    TACOZ_ERR_PARAM         = -4,  /**< Invalid argument(s). */
+    TACOZ_ERR_NOT_FOUND     = -5   /**< File not found in archive. */
 };
+
+
+/**
+ * @brief Replace a specific file in an existing TACO archive.
+ *
+ * This function finds a file by its archive name and replaces it with content
+ * from a new source file. The TACO Ghost and other files remain unchanged.
+ * The replacement file will use STORE method (no compression) like all other
+ * files in the archive.
+ *
+ * @param zip_path   Path to an existing archive created by this library.
+ * @param file_name  Name of the file in the archive to replace (exact match).
+ * @param new_src_path Path to the new file that will replace the existing one.
+ * @return           TACOZ_OK on success; negative error code otherwise.
+ *                   Returns TACOZ_ERR_NOT_FOUND if file_name doesn't exist in archive.
+ *
+ * @note The file_name must match exactly as it was stored in the archive.
+ * @note The new file will maintain the same archive name but with updated content.
+ * @note This operation preserves the TACO Ghost and all metadata entries.
+ */
+TACOZIP_EXPORT
+int tacozip_replace_file(const char *zip_path,
+                        const char *file_name,
+                        const char *new_src_path);
+
 
 /* ========================================================================== */
 /*                                  Multiplexed API                           */
@@ -192,12 +221,13 @@ int tacozip_update_ghost_multi(const char *zip_path,
                               const uint64_t *meta_lengths,
                               size_t array_size);
 
+
 /* ========================================================================== */
 /*                               SINGLE-ENTRY API                             */
 /* ========================================================================== */
 
 /**
- * @brief Create a ZIP64 archive with a single metadata entry (legacy API).
+ * @brief Create a ZIP64 archive with a single metadata entry.
  *
  * This function is maintained for backward compatibility. It creates a ghost
  * with only one metadata entry.
@@ -219,7 +249,7 @@ int tacozip_create(const char *zip_path,
                    uint64_t meta_length);
 
 /**
- * @brief Read the first metadata entry from the ghost (legacy API).
+ * @brief Read the first metadata entry from the ghost.
  *
  * @param zip_path  Path to an existing archive.
  * @param out       Output pointer filled with first entry on success.
@@ -229,7 +259,7 @@ TACOZIP_EXPORT
 int tacozip_read_ghost(const char *zip_path, taco_meta_ptr_t *out);
 
 /**
- * @brief Update the first metadata entry in the ghost (legacy API).
+ * @brief Update the first metadata entry in the ghost.
  *
  * @param zip_path   Path to an existing archive created by this library.
  * @param new_offset New metadata offset for first entry.
@@ -255,21 +285,22 @@ int tacozip_update_ghost(const char *zip_path,
  *    - Unused pairs are stored as (0, 0) for deterministic output
  *    - Count byte allows efficient reading without scanning
  *
- * 3) Backward Compatibility
- *    - Legacy single-entry functions still work
- *    - They read/write only the first entry, leaving others as (0, 0)
- *    - New files created with legacy API can be read with multi API
- *
- * 4) Validation
+ * 3) Validation
  *    - Arrays must be exactly 7 elements for safety
  *    - Function will return TACOZ_ERR_PARAM if array_size != 7
  *    - Count is automatically computed, not passed by user
  *
- * 5) libzip Backend
+ * 4) libzip Backend
  *    - All ZIP operations use libzip for robustness
  *    - Always forces ZIP64 format regardless of file sizes
  *    - Always uses STORE method (no compression)
  *    - Ghost entry is included in central directory as normal entry
+ *
+ * 5) File Replacement
+ *    - tacozip_replace_file() preserves the TACO Ghost and all metadata
+ *    - Only the specified file content is replaced
+ *    - Maintains STORE compression method for consistency
+ *    - Uses exact string matching for file names
  */
 
 #ifdef __cplusplus

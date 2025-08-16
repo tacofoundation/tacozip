@@ -17,7 +17,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
-## [0.4.0] - 2025-08-10
+## [0.5.0] - 2025-08-16
+### Added
+- Added tacozip_replace_file() function to replace file content while preserving ghost header.
+- Documentation updates for new features and usage examples.
+- Improved error handling and validation checks in the C core.
+- Enhanced Python bindings to support new C functions.
+
+
+## [0.4.0] - 2025-08-16
 ### Added
 - Replace of my own ZIP implementation with libzip.
 

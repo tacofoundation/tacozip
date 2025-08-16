@@ -56,6 +56,9 @@ _lib.tacozip_update_ghost_multi.argtypes = [
 ]
 _lib.tacozip_update_ghost_multi.restype = c_int
 
+_lib.tacozip_replace_file.argtypes = [c_char_p, c_char_p, c_char_p]
+_lib.tacozip_replace_file.restype = c_int
+
 
 def _check_result(result: int):
     """Check C function result and raise exception if error."""
@@ -146,6 +149,30 @@ def update_ghost_multi(zip_path: str, meta_offsets: List[int], meta_lengths: Lis
     
     result = _lib.tacozip_update_ghost_multi(
         zip_path.encode('utf-8'), offset_array, length_array, TACO_GHOST_MAX_ENTRIES
+    )
+    
+    _check_result(result)
+
+
+def replace_file(zip_path: str, file_name: str, new_src_path: str):
+    """
+    Replace a specific file in an existing TACO archive.
+    
+    Args:
+        zip_path: Path to the existing archive
+        file_name: Name of the file in the archive to replace (exact match)
+        new_src_path: Path to the new file that will replace the existing one
+    
+    Raises:
+        TacozipError: If the operation fails (file not found, I/O error, etc.)
+    
+    Example:
+        >>> replace_file("data.taco.zip", "part1.parquet", "/path/to/new_part1.parquet")
+    """
+    result = _lib.tacozip_replace_file(
+        zip_path.encode('utf-8'),
+        file_name.encode('utf-8'), 
+        new_src_path.encode('utf-8')
     )
     
     _check_result(result)

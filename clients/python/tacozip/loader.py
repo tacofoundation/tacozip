@@ -62,6 +62,7 @@ def self_check():
         'tacozip_create_multi',
         'tacozip_read_ghost_multi',
         'tacozip_update_ghost_multi',
+        'tacozip_replace_file',
     ]
     
     missing_functions = []

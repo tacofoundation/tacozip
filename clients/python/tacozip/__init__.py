@@ -17,12 +17,13 @@ from .loader import self_check
 # Import APIs directly from bindings
 from .bindings import (
     create, read_ghost, update_ghost,
-    create_multi, read_ghost_multi, update_ghost_multi
+    create_multi, read_ghost_multi, update_ghost_multi,
+    replace_file
 )
 
 # Package metadata
 __author__ = "Cesar Aybar"
-__author_email__ = "csaybar@gmail.com"
+__author_email__ = "cesar.aybar@uv.es"
 __description__ = "TACO ZIP: ZIP64 archive with TACO Ghost supporting up to 7 metadata entries"
 __url__ = "https://github.com/csaybar/tacozip"
 __license__ = "MIT"
@@ -46,6 +47,7 @@ __all__ = [
     "TACOZ_ERR_LIBZIP", 
     "TACOZ_ERR_INVALID_GHOST",
     "TACOZ_ERR_PARAM",
+    "TACOZ_ERR_NOT_FOUND",
     "TACO_GHOST_MAX_ENTRIES",
     
     # Exceptions
@@ -60,6 +62,7 @@ __all__ = [
     "create_multi",
     "read_ghost_multi",
     "update_ghost_multi",
+    
+    # File operations
+    "replace_file",
 ]
-
-

@@ -1,4 +1,3 @@
-import os
 import pathlib
 import ctypes
 from ctypes import c_char_p, c_size_t, c_uint64, c_int, c_uint8, Structure, POINTER
@@ -114,13 +113,8 @@ def _fast_normalize_inputs(src_files: List[Union[str, pathlib.Path]],
     # Handle archive names
     if arc_files is not None:
         if len(arc_files) != len(normalized_src):
-            # Simple truncate/pad
-            if len(arc_files) > len(normalized_src):
-                normalized_arc = arc_files[:len(normalized_src)]
-            else:
-                normalized_arc = arc_files + [f"file_{i}" for i in range(len(arc_files), len(normalized_src))]
-        else:
-            normalized_arc = arc_files
+            raise ValueError(f"Archive names count ({len(arc_files)}) must match source files count ({len(normalized_src)})")
+        normalized_arc = arc_files
     else:
         # Auto-generate names quickly
         normalized_arc = [pathlib.Path(f).name for f in normalized_src]

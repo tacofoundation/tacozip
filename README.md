@@ -1,4 +1,4 @@
-# tacozip
+# tacozip 🌮
 
 | Benchmark | Builds | Python Test | 
 |:-:|:-:| :-:|

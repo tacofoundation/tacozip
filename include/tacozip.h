@@ -158,6 +158,24 @@ int tacozip_replace_file(const char *zip_path,
                         const char *new_src_path);
 
 
+
+                        /* ========================================================================== */
+/*                             VERSION INFORMATION                           */
+/* ========================================================================== */
+
+/**
+ * @brief Get the version string of the tacozip C library.
+ *
+ * This function returns a compile-time version string that identifies the 
+ * version of the tacozip C library. The version string is defined by the
+ * TACOZIP_VERSION_STRING macro, which is typically set during the build
+ * process via CMake using the PROJECT_VERSION variable.
+ *
+ */
+TACOZIP_EXPORT
+const char* tacozip_get_version(void);
+
+
 /* ========================================================================== */
 /*                                  Multiplexed API                           */
 /* ========================================================================== */

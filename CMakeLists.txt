@@ -11,10 +11,13 @@ cmake_minimum_required(VERSION 3.15)
 #   cmake --install --preset release
 # -----------------------------------------------------------------------------
 project(tacozip
-  VERSION 0.5.0
+  VERSION 0.5.9
   LANGUAGES C
   DESCRIPTION "TACO ZIP: ZIP64 archive with TACO Ghost supporting up to 7 metadata entries (libzip backend)"
 )
+
+# Add project version to compile definitions
+add_compile_definitions(TACOZIP_VERSION_STRING="${PROJECT_VERSION}")
 
 # Export all symbols on Windows if no .def is provided (helps produce tacozip.dll)
 if(WIN32)

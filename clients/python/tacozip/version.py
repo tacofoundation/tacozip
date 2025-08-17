@@ -20,4 +20,6 @@ def _get_version() -> str:
     # Strategy 3: Hardcoded fallback
     return "0.0.0"
 
+
+
 __version__ = _get_version()

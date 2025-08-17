@@ -18,7 +18,7 @@ from .loader import self_check
 from .bindings import (
     create, read_ghost, update_ghost,
     create_multi, read_ghost_multi, update_ghost_multi,
-    replace_file
+    replace_file, get_library_version
 )
 
 # Package metadata
@@ -27,11 +27,13 @@ __author_email__ = "cesar.aybar@uv.es"
 __description__ = "TACO ZIP: ZIP64 archive with TACO Ghost supporting up to 7 metadata entries"
 __url__ = "https://github.com/csaybar/tacozip"
 __license__ = "MIT"
+__tacozip_version__ = get_library_version()
 
 # Export public API
 __all__ = [
     # Version
     "__version__",
+    "__tacozip_version__",
     "__author__",
     "__author_email__",
     "__description__",
@@ -64,5 +66,5 @@ __all__ = [
     "update_ghost_multi",
     
     # File operations
-    "replace_file",
+    "replace_file"
 ]

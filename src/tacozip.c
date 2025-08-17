@@ -170,35 +170,101 @@ static int parse_ghost_payload(const unsigned char *payload, taco_meta_array_t *
 /* ----------------------- libzip helper functions --------------------------- */
 
 /**
- * @brief Add file to libzip archive with STORE method and ZIP64.
+ * @brief Check if a path is a directory
+ * @param path File system path to check  
+ * @return 1 if directory, 0 if file, -1 if error/doesn't exist
+ */
+static int is_directory(const char *src_path) {
+    struct stat st;
+    if (stat(src_path, &st) != 0) {
+        return -1;  /* Error or doesn't exist */
+    }
+    return S_ISDIR(st.st_mode) ? 1 : 0;
+}
+
+/**
+ * @brief Add file OR directory to libzip archive with STORE method and ZIP64.
  * @param za libzip archive handle
- * @param src_path Source file path
+ * @param src_path Source file or directory path
  * @param arc_name Archive entry name
  * @return TACOZ_OK on success, error code on failure
  */
 static int add_file_to_archive(zip_t *za, const char *src_path, const char *arc_name) {
-    /* Create source from file */
-    zip_source_t *source = zip_source_file(za, src_path, 0, -1);
-    if (!source) {
+    int path_type = is_directory(src_path);
+    
+    if (path_type == 1) {
+        /* It's a directory - create empty entry with '/' suffix */
+        char *dir_name = NULL;
+        size_t name_len = strlen(arc_name);
+        
+        if (name_len > 0 && arc_name[name_len - 1] == '/') {
+            dir_name = strdup(arc_name);
+        } else {
+            dir_name = malloc(name_len + 2);
+            if (!dir_name) return TACOZ_ERR_IO;
+            strcpy(dir_name, arc_name);
+            strcat(dir_name, "/");
+        }
+        
+        /* Create empty source for directory */
+        zip_source_t *source = zip_source_buffer(za, "", 0, 0);
+        if (!source) {
+            free(dir_name);
+            return TACOZ_ERR_LIBZIP;
+        }
+        
+        /* Add directory entry */
+        zip_int64_t index = zip_file_add(za, dir_name, source, ZIP_FL_OVERWRITE);
+        if (index < 0) {
+            zip_source_free(source);
+            free(dir_name);
+            return TACOZ_ERR_LIBZIP;
+        }
+        
+        /* Set directory attributes - FIXED: Use proper casting and values */
+        zip_uint32_t external_attr = 0755 | S_IFDIR;  /* Directory permissions with S_IFDIR flag */
+        external_attr = external_attr << 16;  /* Shift to high 16 bits for Unix attributes */
+        
+        if (zip_file_set_external_attributes(za, (zip_uint64_t)index, 
+                                            ZIP_FL_UNCHANGED, ZIP_OPSYS_UNIX, external_attr) < 0) {
+            free(dir_name);
+            return TACOZ_ERR_LIBZIP;
+        }
+        
+        /* Force STORE method (no compression) */
+        if (zip_set_file_compression(za, (zip_uint64_t)index, ZIP_CM_STORE, 0) < 0) {
+            free(dir_name);
+            return TACOZ_ERR_LIBZIP;
+        }
+        
+        free(dir_name);
+        return TACOZ_OK;
+        
+    } else if (path_type == 0) {
+        /* It's a file - use original logic */
+        zip_source_t *source = zip_source_file(za, src_path, 0, -1);
+        if (!source) {
+            return TACOZ_ERR_IO;
+        }
+
+        /* Add file to archive */
+        zip_int64_t index = zip_file_add(za, arc_name, source, ZIP_FL_OVERWRITE);
+        if (index < 0) {
+            zip_source_free(source);
+            return TACOZ_ERR_LIBZIP;
+        }
+
+        /* Force STORE method (no compression) */
+        if (zip_set_file_compression(za, (zip_uint64_t)index, ZIP_CM_STORE, 0) < 0) {
+            return TACOZ_ERR_LIBZIP;
+        }
+
+        return TACOZ_OK;
+        
+    } else {
+        /* Path doesn't exist or error */
         return TACOZ_ERR_IO;
     }
-
-    /* Add file to archive */
-    zip_int64_t index = zip_file_add(za, arc_name, source, ZIP_FL_OVERWRITE);
-    if (index < 0) {
-        zip_source_free(source);
-        return TACOZ_ERR_LIBZIP;
-    }
-
-    /* Force STORE method (no compression) */
-    if (zip_set_file_compression(za, (zip_uint64_t)index, ZIP_CM_STORE, 0) < 0) {
-        return TACOZ_ERR_LIBZIP;
-    }
-
-    /* Suppress unused parameter warnings for UTF-8 handling */
-    (void)index;
-
-    return TACOZ_OK;
 }
 
 /**
@@ -521,4 +587,18 @@ int tacozip_update_ghost(const char *zip_path, uint64_t new_offset, uint64_t new
     
     /* Use multi-updater */
     return tacozip_update_ghost_multi(zip_path, offsets, lengths, TACO_GHOST_MAX_ENTRIES);
+}
+
+/**
+ * @brief Implementation of tacozip_get_version function.
+ *
+ * This function simply returns the TACOZIP_VERSION_STRING macro value,
+ * which is defined at compile time. The macro is typically set by the
+ * build system (CMake) using:
+     *
+ * @warning If TACOZIP_VERSION_STRING is not defined at compile time,
+ *          this will result in a compilation error.
+ */
+const char* tacozip_get_version(void) {
+    return TACOZIP_VERSION_STRING;
 }

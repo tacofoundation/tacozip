@@ -9,11 +9,6 @@ from .exceptions import TacozipError
 
 
 # C Structures
-class TacoMetaPtr(Structure):
-    """Single metadata pointer (legacy)."""
-    _fields_ = [("offset", c_uint64), ("length", c_uint64)]
-
-
 class TacoMetaEntry(Structure):
     """Single metadata entry."""
     _fields_ = [("offset", c_uint64), ("length", c_uint64)]
@@ -30,38 +25,26 @@ class TacoMetaArray(Structure):
 # Global library instance
 _lib = get_library()
 
-# Setup function signatures
+# Setup function signatures for simplified API
+_lib.tacozip_get_version.argtypes = []
+_lib.tacozip_get_version.restype = c_char_p
+
 _lib.tacozip_create.argtypes = [
-    c_char_p, POINTER(c_char_p), POINTER(c_char_p), 
-    c_size_t, c_uint64, c_uint64
-]
-_lib.tacozip_create.restype = c_int
-
-_lib.tacozip_read_ghost.argtypes = [c_char_p, POINTER(TacoMetaPtr)]
-_lib.tacozip_read_ghost.restype = c_int
-
-_lib.tacozip_update_ghost.argtypes = [c_char_p, c_uint64, c_uint64]
-_lib.tacozip_update_ghost.restype = c_int
-
-_lib.tacozip_create_multi.argtypes = [
     c_char_p, POINTER(c_char_p), POINTER(c_char_p),
     c_size_t, POINTER(c_uint64), POINTER(c_uint64), c_size_t
 ]
-_lib.tacozip_create_multi.restype = c_int
+_lib.tacozip_create.restype = c_int
 
-_lib.tacozip_read_ghost_multi.argtypes = [c_char_p, POINTER(TacoMetaArray)]
-_lib.tacozip_read_ghost_multi.restype = c_int
-
-_lib.tacozip_update_ghost_multi.argtypes = [
+_lib.tacozip_update_ghost.argtypes = [
     c_char_p, POINTER(c_uint64), POINTER(c_uint64), c_size_t
 ]
-_lib.tacozip_update_ghost_multi.restype = c_int
+_lib.tacozip_update_ghost.restype = c_int
+
+_lib.tacozip_append_file.argtypes = [c_char_p, c_char_p, c_char_p]
+_lib.tacozip_append_file.restype = c_int
 
 _lib.tacozip_replace_file.argtypes = [c_char_p, c_char_p, c_char_p]
 _lib.tacozip_replace_file.restype = c_int
-
-_lib.tacozip_get_version.argtypes = []
-_lib.tacozip_get_version.restype = c_char_p
 
 
 def _check_result(result: int):
@@ -122,42 +105,11 @@ def _fast_normalize_inputs(src_files: List[Union[str, pathlib.Path]],
     return normalized_src, normalized_arc
 
 
-# Fast API functions
+# Simplified API functions
 def create(zip_path: str, src_files: List[Union[str, pathlib.Path]], 
-           arc_files: List[str] = None, meta_offset: int = 0, meta_length: int = 0):
-    """Create archive with single metadata entry. Fast with minimal validation."""
-    
-    # Minimal output validation
-    validated_zip_path = _minimal_output_check(zip_path)
-    
-    # Fast input normalization
-    normalized_src, normalized_arc = _fast_normalize_inputs(src_files, arc_files)
-    
-    # Prepare C arrays
-    src_array, src_bytes = _prepare_string_array(normalized_src)
-    arc_array, arc_bytes = _prepare_string_array(normalized_arc)
-    
-    print(f"📦 Creating archive with {len(normalized_src)} files...")
-    
-    # Call C function (this is where the actual work happens)
-    result = _lib.tacozip_create(
-        validated_zip_path.encode("utf-8"), src_array, arc_array,
-        c_size_t(len(normalized_src)), c_uint64(meta_offset), c_uint64(meta_length)
-    )
-    
-    _check_result(result)
-    
-    try:
-        archive_size = pathlib.Path(validated_zip_path).stat().st_size
-        print(f"✅ Archive: {validated_zip_path} ({archive_size:,} bytes)")
-    except:
-        print(f"✅ Archive created: {validated_zip_path}")
-
-
-def create_multi(zip_path: str, src_files: List[Union[str, pathlib.Path]], 
-                 arc_files: List[str] = None, meta_offsets: List[int] = None, 
-                 meta_lengths: List[int] = None):
-    """Create archive with multiple metadata entries. Fast with minimal validation."""
+           arc_files: List[str] = None, meta_offsets: List[int] = None, 
+           meta_lengths: List[int] = None):
+    """Create archive with up to 7 metadata entries. Unified API."""
     
     # Default metadata
     if meta_offsets is None:
@@ -185,8 +137,8 @@ def create_multi(zip_path: str, src_files: List[Union[str, pathlib.Path]],
     
     print(f"📦 Creating archive with {len(normalized_src)} files...")
     
-    # Call C function (this is where the actual work happens)
-    result = _lib.tacozip_create_multi(
+    # Call C function
+    result = _lib.tacozip_create(
         validated_zip_path.encode('utf-8'), src_array, arc_array,
         len(normalized_src), offset_array, length_array, TACO_GHOST_MAX_ENTRIES
     )
@@ -200,42 +152,29 @@ def create_multi(zip_path: str, src_files: List[Union[str, pathlib.Path]],
         print(f"✅ Archive created: {validated_zip_path}")
 
 
-# Lightweight versions of other functions
-def read_ghost(zip_path: str) -> Tuple[int, int, int]:
-    """Read first metadata entry from ghost."""
-    out = TacoMetaPtr()
-    rc = _lib.tacozip_read_ghost(zip_path.encode("utf-8"), ctypes.byref(out))
-    return rc, out.offset, out.length
-
-
-def update_ghost(zip_path: str, new_offset: int, new_length: int):
-    """Update first metadata entry in ghost."""
-    result = _lib.tacozip_update_ghost(
-        zip_path.encode("utf-8"), c_uint64(new_offset), c_uint64(new_length)
-    )
-    _check_result(result)
-
-
-def read_ghost_multi(zip_path: str) -> Tuple[int, List[Tuple[int, int]]]:
-    """Read all metadata entries from ghost."""
-    meta = TacoMetaArray()
-    result = _lib.tacozip_read_ghost_multi(zip_path.encode('utf-8'), ctypes.byref(meta))
-    _check_result(result)
-    
-    entries = []
-    for i in range(TACO_GHOST_MAX_ENTRIES):
-        entries.append((meta.entries[i].offset, meta.entries[i].length))
-    
-    return meta.count, entries
-
-
-def update_ghost_multi(zip_path: str, meta_offsets: List[int], meta_lengths: List[int]):
+def update_ghost(zip_path: str, meta_offsets: List[int], meta_lengths: List[int]):
     """Update all metadata entries in ghost."""
+    if len(meta_offsets) != len(meta_lengths):
+        raise ValueError("Metadata arrays must have same length")
+    if len(meta_offsets) > TACO_GHOST_MAX_ENTRIES:
+        raise ValueError(f"Too many metadata entries: {len(meta_offsets)} > {TACO_GHOST_MAX_ENTRIES}")
+    
     offset_array = _prepare_uint64_array(meta_offsets)
     length_array = _prepare_uint64_array(meta_lengths)
     
-    result = _lib.tacozip_update_ghost_multi(
+    result = _lib.tacozip_update_ghost(
         zip_path.encode('utf-8'), offset_array, length_array, TACO_GHOST_MAX_ENTRIES
+    )
+    
+    _check_result(result)
+
+
+def append_file(zip_path: str, src_path: str, arc_name: str):
+    """Append a new file to an existing TACO archive."""
+    result = _lib.tacozip_append_file(
+        zip_path.encode('utf-8'),
+        src_path.encode('utf-8'),
+        arc_name.encode('utf-8')
     )
     
     _check_result(result)

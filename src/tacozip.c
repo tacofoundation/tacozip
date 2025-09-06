@@ -1,16 +1,12 @@
 /*
  * tacozip.c — ZIP64 (STORE-only) writer with libzip backend and TACO Ghost supporting up to 7 metadata entries.
  *
- * This implementation replaces all custom ZIP code with libzip, while maintaining
- * the same API and ghost header concept. The ghost entry is now included in the
- * central directory as a normal file entry, but is physically first in the archive.
- *
- * Key changes from custom implementation:
- *  - Uses libzip for all ZIP operations (no more manual ZIP structures)
- *  - Always forces ZIP64 format regardless of file sizes
- *  - Always uses STORE method (no compression)
- *  - Ghost entry appears in central directory as normal entry
- *  - Maintains same API for backward compatibility
+ * This simplified implementation provides a clean API with only the essential functions:
+ * - tacozip_create() - create archive with up to 7 metadata entries
+ * - tacozip_update_ghost() - write/update ghost metadata (no reading)
+ * - tacozip_append_file() - append single file to archive
+ * - tacozip_replace_file() - replace existing file in archive
+ * - tacozip_get_version() - get library version
  */
 
 /* Platform-specific feature detection */
@@ -71,14 +67,7 @@ static inline void le64(unsigned char *p, uint64_t v){
     p[7] = (unsigned char)(v >> 56);
 }
 
-/* -------------------------- Little-endian readers -------------------------- */
-static inline uint64_t le64_read(const unsigned char *p) {
-    uint64_t v = 0;
-    for (int i = 0; i < 8; i++) v |= ((uint64_t)p[i]) << (8u * i);
-    return v;
-}
-
-/* ----------------------- Multi-parquet helper functions -------------------- */
+/* ----------------------- Metadata helper functions -------------------- */
 
 /**
  * @brief Count valid metadata entries by scanning until first (0,0) pair.
@@ -110,20 +99,6 @@ static void arrays_to_meta_struct(const uint64_t *offsets, const uint64_t *lengt
 }
 
 /**
- * @brief Convert taco_meta_array_t structure to arrays.
- * @param meta Input structure
- * @param offsets Output array of 7 offset values
- * @param lengths Output array of 7 length values
- */
-static void meta_struct_to_arrays(const taco_meta_array_t *meta, uint64_t *offsets, uint64_t *lengths) {
-    for (size_t i = 0; i < TACO_GHOST_MAX_ENTRIES; i++) {
-        offsets[i] = meta->entries[i].offset;
-        lengths[i] = meta->entries[i].length;
-    }
-}
-
-/* ---------------------------- Ghost payload creator ------------------------ */
-/**
  * @brief Create ghost payload from metadata structure.
  * @param meta Input metadata structure
  * @param payload Output buffer (must be at least TACO_GHOST_PAYLOAD_SIZE bytes)
@@ -141,30 +116,6 @@ static void create_ghost_payload(const taco_meta_array_t *meta, unsigned char *p
         le64(pairs_start + i * 16 + 0, meta->entries[i].offset);
         le64(pairs_start + i * 16 + 8, meta->entries[i].length);
     }
-}
-
-/* ---------------------------- Ghost payload parser ------------------------- */
-/**
- * @brief Parse ghost payload into metadata structure.
- * @param payload Input buffer (must be at least TACO_GHOST_PAYLOAD_SIZE bytes)
- * @param meta Output metadata structure
- * @return TACOZ_OK on success, TACOZ_ERR_INVALID_GHOST on error
- */
-static int parse_ghost_payload(const unsigned char *payload, taco_meta_array_t *meta) {
-    memset(meta, 0, sizeof(*meta));
-    
-    /* Read count byte */
-    meta->count = payload[0];
-    if (meta->count > TACO_GHOST_MAX_ENTRIES) return TACOZ_ERR_INVALID_GHOST;
-
-    /* Read all 7 pairs (even unused ones) */
-    const unsigned char *pairs_start = payload + 4;
-    for (size_t i = 0; i < TACO_GHOST_MAX_ENTRIES; i++) {
-        meta->entries[i].offset = le64_read(pairs_start + i * 16 + 0);
-        meta->entries[i].length = le64_read(pairs_start + i * 16 + 8);
-    }
-
-    return TACOZ_OK;
 }
 
 /* ----------------------- libzip helper functions --------------------------- */
@@ -221,7 +172,7 @@ static int add_file_to_archive(zip_t *za, const char *src_path, const char *arc_
             return TACOZ_ERR_LIBZIP;
         }
         
-        /* Set directory attributes - FIXED: Use proper casting and values */
+        /* Set directory attributes */
         zip_uint32_t external_attr = 0755 | S_IFDIR;  /* Directory permissions with S_IFDIR flag */
         external_attr = external_attr << 16;  /* Shift to high 16 bits for Unix attributes */
         
@@ -299,23 +250,24 @@ static int add_ghost_to_archive(zip_t *za, const taco_meta_array_t *meta) {
         return TACOZ_ERR_LIBZIP;
     }
 
-    /* Suppress unused parameter warnings */
-    (void)index;
-
     return TACOZ_OK;
 }
 
 /* ========================================================================== */
-/*                            NEW MULTI-PARQUET API                          */
+/*                               CORE API                                    */
 /* ========================================================================== */
 
-int tacozip_create_multi(const char *zip_path,
-                        const char * const *src_files,
-                        const char * const *arc_files,
-                        size_t num_files,
-                        const uint64_t *meta_offsets,
-                        const uint64_t *meta_lengths,
-                        size_t array_size)
+const char* tacozip_get_version(void) {
+    return TACOZIP_VERSION_STRING;
+}
+
+int tacozip_create(const char *zip_path,
+                  const char * const *src_files,
+                  const char * const *arc_files,
+                  size_t num_files,
+                  const uint64_t *meta_offsets,
+                  const uint64_t *meta_lengths,
+                  size_t array_size)
 {
     if (!zip_path || !src_files || !arc_files || num_files == 0)
         return TACOZ_ERR_PARAM;
@@ -362,47 +314,10 @@ int tacozip_create_multi(const char *zip_path,
     return TACOZ_OK;
 }
 
-int tacozip_read_ghost_multi(const char *zip_path, taco_meta_array_t *out) {
-    if (!zip_path || !out) return TACOZ_ERR_PARAM;
-    
-    int error;
-    zip_t *za = zip_open(zip_path, ZIP_RDONLY, &error);
-    if (!za) {
-        return TACOZ_ERR_IO;
-    }
-
-    /* Find ghost entry */
-    zip_int64_t ghost_index = zip_name_locate(za, TACO_GHOST_NAME, 0);
-    if (ghost_index < 0) {
-        zip_close(za);
-        return TACOZ_ERR_INVALID_GHOST;
-    }
-
-    /* Open ghost file */
-    zip_file_t *ghost_file = zip_fopen_index(za, (zip_uint64_t)ghost_index, 0);
-    if (!ghost_file) {
-        zip_close(za);
-        return TACOZ_ERR_LIBZIP;
-    }
-
-    /* Read ghost payload */
-    unsigned char payload[TACO_GHOST_PAYLOAD_SIZE];
-    zip_int64_t bytes_read = zip_fread(ghost_file, payload, sizeof(payload));
-    zip_fclose(ghost_file);
-    zip_close(za);
-
-    if (bytes_read != sizeof(payload)) {
-        return TACOZ_ERR_INVALID_GHOST;
-    }
-
-    /* Parse payload */
-    return parse_ghost_payload(payload, out);
-}
-
-int tacozip_update_ghost_multi(const char *zip_path,
-                              const uint64_t *meta_offsets,
-                              const uint64_t *meta_lengths,
-                              size_t array_size) {
+int tacozip_update_ghost(const char *zip_path,
+                        const uint64_t *meta_offsets,
+                        const uint64_t *meta_lengths,
+                        size_t array_size) {
     if (!zip_path || !meta_offsets || !meta_lengths || array_size != TACO_GHOST_MAX_ENTRIES)
         return TACOZ_ERR_PARAM;
 
@@ -451,6 +366,54 @@ int tacozip_update_ghost_multi(const char *zip_path,
     if (zip_set_file_compression(za, (zip_uint64_t)ghost_index, ZIP_CM_STORE, 0) < 0) {
         zip_close(za);
         return TACOZ_ERR_LIBZIP;
+    }
+
+    /* Close and finalize the archive */
+    if (zip_close(za) < 0) {
+        return TACOZ_ERR_IO;
+    }
+
+    return TACOZ_OK;
+}
+
+int tacozip_append_file(const char *zip_path,
+                       const char *src_path,
+                       const char *arc_name) {
+    if (!zip_path || !src_path || !arc_name) {
+        return TACOZ_ERR_PARAM;
+    }
+
+    /* Verify the source file exists and is readable */
+    FILE *test_file = fopen(src_path, "rb");
+    if (!test_file) {
+        return TACOZ_ERR_IO;
+    }
+    fclose(test_file);
+
+    int error;
+    zip_t *za = zip_open(zip_path, 0, &error);  /* Open for modification */
+    if (!za) {
+        return TACOZ_ERR_IO;
+    }
+
+    /* Check if file already exists */
+    zip_int64_t existing_index = zip_name_locate(za, arc_name, 0);
+    if (existing_index >= 0) {
+        zip_close(za);
+        return TACOZ_ERR_EXISTS;
+    }
+
+    /* Protect against adding duplicate ghost entry */
+    if (strcmp(arc_name, TACO_GHOST_NAME) == 0) {
+        zip_close(za);
+        return TACOZ_ERR_PARAM;  /* Cannot add duplicate ghost */
+    }
+
+    /* Add the new file */
+    int rc = add_file_to_archive(za, src_path, arc_name);
+    if (rc != TACOZ_OK) {
+        zip_close(za);
+        return rc;
     }
 
     /* Close and finalize the archive */
@@ -520,85 +483,4 @@ int tacozip_replace_file(const char *zip_path,
     }
 
     return TACOZ_OK;
-}
-
-/* ========================================================================== */
-/*                         LEGACY SINGLE-ENTRY API                           */
-/* ========================================================================== */
-
-int tacozip_create(const char *zip_path,
-                   const char * const *src_files,
-                   const char * const *arc_files,
-                   size_t num_files,
-                   uint64_t meta_offset,
-                   uint64_t meta_length)
-{
-    if (!zip_path || !src_files || !arc_files || num_files == 0)
-        return TACOZ_ERR_PARAM;
-
-    /* Convert single entry to arrays */
-    uint64_t offsets[TACO_GHOST_MAX_ENTRIES] = {0};
-    uint64_t lengths[TACO_GHOST_MAX_ENTRIES] = {0};
-    
-    offsets[0] = meta_offset;
-    lengths[0] = meta_length;
-
-    return tacozip_create_multi(zip_path, src_files, arc_files, num_files,
-                               offsets, lengths, TACO_GHOST_MAX_ENTRIES);
-}
-
-int tacozip_read_ghost(const char *zip_path, taco_meta_ptr_t *out) {
-    if (!zip_path || !out) return TACOZ_ERR_PARAM;
-    
-    /* Use multi-reader and extract first entry */
-    taco_meta_array_t multi = {0};
-    int rc = tacozip_read_ghost_multi(zip_path, &multi);
-    if (rc != TACOZ_OK) return rc;
-    
-    /* Return first entry (or 0,0 if no entries) */
-    if (multi.count > 0) {
-        out->offset = multi.entries[0].offset;
-        out->length = multi.entries[0].length;
-    } else {
-        out->offset = 0;
-        out->length = 0;
-    }
-    
-    return TACOZ_OK;
-}
-
-int tacozip_update_ghost(const char *zip_path, uint64_t new_offset, uint64_t new_length) {
-    if (!zip_path) return TACOZ_ERR_PARAM;
-    
-    /* Read current ghost state */
-    taco_meta_array_t meta = {0};
-    int rc = tacozip_read_ghost_multi(zip_path, &meta);
-    if (rc != TACOZ_OK) return rc;
-    
-    /* Update first entry, preserve others */
-    meta.entries[0].offset = new_offset;
-    meta.entries[0].length = new_length;
-    
-    /* Recalculate count (in case first entry became 0,0) */
-    uint64_t offsets[TACO_GHOST_MAX_ENTRIES];
-    uint64_t lengths[TACO_GHOST_MAX_ENTRIES];
-    meta_struct_to_arrays(&meta, offsets, lengths);
-    meta.count = count_valid_entries(offsets, lengths);
-    
-    /* Use multi-updater */
-    return tacozip_update_ghost_multi(zip_path, offsets, lengths, TACO_GHOST_MAX_ENTRIES);
-}
-
-/**
- * @brief Implementation of tacozip_get_version function.
- *
- * This function simply returns the TACOZIP_VERSION_STRING macro value,
- * which is defined at compile time. The macro is typically set by the
- * build system (CMake) using:
-     *
- * @warning If TACOZIP_VERSION_STRING is not defined at compile time,
- *          this will result in a compilation error.
- */
-const char* tacozip_get_version(void) {
-    return TACOZIP_VERSION_STRING;
 }

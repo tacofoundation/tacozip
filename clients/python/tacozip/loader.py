@@ -56,12 +56,10 @@ def self_check():
     lib = get_library()
     
     required_functions = [
+        'tacozip_get_version',
         'tacozip_create',
-        'tacozip_read_ghost', 
         'tacozip_update_ghost',
-        'tacozip_create_multi',
-        'tacozip_read_ghost_multi',
-        'tacozip_update_ghost_multi',
+        'tacozip_append_file',
         'tacozip_replace_file',
     ]
     

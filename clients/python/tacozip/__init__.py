@@ -1,12 +1,5 @@
 """
 tacozip - High-performance ZIP64 writer with TACO Ghost metadata support.
-
-This package provides both legacy and multi-parquet APIs for creating ZIP64 archives
-with specialized metadata support.
-"""
-
-"""
-tacozip - High-performance ZIP64 writer with TACO Ghost metadata support.
 """
 
 from .version import __version__
@@ -14,11 +7,9 @@ from .config import *
 from .exceptions import TacozipError
 from .loader import self_check
 
-# Import APIs directly from bindings
+# Import simplified API from bindings
 from .bindings import (
-    create, read_ghost, update_ghost,
-    create_multi, read_ghost_multi, update_ghost_multi,
-    replace_file, get_library_version
+    create, update_ghost, append_file, replace_file, get_library_version
 )
 
 # Package metadata
@@ -46,25 +37,20 @@ __all__ = [
     # Constants
     "TACOZ_OK",
     "TACOZ_ERR_IO",
-    "TACOZ_ERR_LIBZIP", 
+    "TACOZ_ERR_LIBZIP",
     "TACOZ_ERR_INVALID_GHOST",
     "TACOZ_ERR_PARAM",
     "TACOZ_ERR_NOT_FOUND",
+    "TACOZ_ERR_EXISTS",
     "TACO_GHOST_MAX_ENTRIES",
     
     # Exceptions
     "TacozipError",
     
-    # Legacy API
+    # Core API
     "create",
-    "read_ghost", 
     "update_ghost",
-    
-    # Multi-parquet API
-    "create_multi",
-    "read_ghost_multi",
-    "update_ghost_multi",
-    
-    # File operations
-    "replace_file"
+    "append_file",
+    "replace_file",
+    "get_library_version"
 ]

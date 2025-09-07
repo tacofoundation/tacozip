@@ -59,7 +59,7 @@ def self_check():
         'tacozip_get_version',
         'tacozip_create',
         'tacozip_update_ghost',
-        'tacozip_append_file',
+        'tacozip_append_files',
         'tacozip_replace_file',
     ]
     

@@ -22,6 +22,14 @@ class TacoMetaArray(Structure):
     ]
 
 
+class TacoAppendEntry(Structure):
+    """Entry for append operations (single or batch)."""
+    _fields_ = [
+        ("src_path", c_char_p),
+        ("arc_name", c_char_p),
+    ]
+
+
 # Global library instance
 _lib = get_library()
 
@@ -40,8 +48,10 @@ _lib.tacozip_update_ghost.argtypes = [
 ]
 _lib.tacozip_update_ghost.restype = c_int
 
-_lib.tacozip_append_file.argtypes = [c_char_p, c_char_p, c_char_p]
-_lib.tacozip_append_file.restype = c_int
+_lib.tacozip_append_files.argtypes = [
+    c_char_p, POINTER(TacoAppendEntry), c_size_t
+]
+_lib.tacozip_append_files.restype = c_int
 
 _lib.tacozip_replace_file.argtypes = [c_char_p, c_char_p, c_char_p]
 _lib.tacozip_replace_file.restype = c_int
@@ -81,6 +91,27 @@ def _prepare_uint64_array(values: List[int], size: int = TACO_GHOST_MAX_ENTRIES)
     # Pad with zeros if needed
     padded_values = values + [0] * (size - len(values))
     return (c_uint64 * size)(*padded_values)
+
+
+def _prepare_append_entries(entries: List[Tuple[str, str]]) -> Tuple[ctypes.Array, List[bytes]]:
+    """Convert list of (src_path, arc_name) tuples to C append entry array."""
+    if not entries:
+        raise ValueError("Must provide at least one entry to append")
+    
+    # Keep references to byte strings to prevent garbage collection
+    byte_strings = []
+    entry_array = (TacoAppendEntry * len(entries))()
+    
+    for i, (src_path, arc_name) in enumerate(entries):
+        src_bytes = str(pathlib.Path(src_path).resolve()).encode('utf-8')
+        arc_bytes = arc_name.encode('utf-8')
+        
+        byte_strings.extend([src_bytes, arc_bytes])
+        
+        entry_array[i].src_path = src_bytes
+        entry_array[i].arc_name = arc_bytes
+    
+    return entry_array, byte_strings
 
 
 def _fast_normalize_inputs(src_files: List[Union[str, pathlib.Path]], 
@@ -169,12 +200,35 @@ def update_ghost(zip_path: str, meta_offsets: List[int], meta_lengths: List[int]
     _check_result(result)
 
 
-def append_file(zip_path: str, src_path: str, arc_name: str):
-    """Append a new file to an existing TACO archive."""
-    result = _lib.tacozip_append_file(
+def append_files(zip_path: str, entries: List[Tuple[str, str]]):
+    """Append one or more files to an existing TACO archive.
+    
+    Args:
+        zip_path: Path to existing TACO archive
+        entries: List of (src_path, arc_name) tuples
+        
+    Examples:
+        # Single file
+        append_files("archive.taco", [("/path/to/file.bin", "data/file.bin")])
+        
+        # Multiple files
+        append_files("archive.taco", [
+            ("/path/to/file1.bin", "data/file1.bin"),
+            ("/path/to/file2.bin", "data/file2.bin"),
+            ("/path/to/file3.bin", "data/file3.bin")
+        ])
+    """
+    if not entries:
+        raise ValueError("Must provide at least one entry to append")
+    
+    # Prepare entry array
+    entry_array, byte_strings = _prepare_append_entries(entries)
+    
+    # Call C function
+    result = _lib.tacozip_append_files(
         zip_path.encode('utf-8'),
-        src_path.encode('utf-8'),
-        arc_name.encode('utf-8')
+        entry_array,
+        len(entries)
     )
     
     _check_result(result)

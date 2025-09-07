@@ -61,3 +61,5 @@ pyinstall.sh
 clients/python (copy)/
 
 run_tests.py
+
+demo_majortom.py

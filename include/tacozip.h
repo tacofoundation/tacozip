@@ -50,8 +50,17 @@
  *   uint64_t new_lengths[7] = {600, 750, 0, 0, 0, 0, 0};
  *   rc = tacozip_update_ghost("out.taco.zip", new_offsets, new_lengths, 7);
  *   
- *   // Append a new file to the archive
- *   rc = tacozip_append_file("out.taco.zip", "/path/to/c.bin", "data/c.bin");
+ *   // Append files to the archive (single or multiple)
+ *   tacozip_append_entry_t entries[] = {
+ *       {"/path/to/c.bin", "data/c.bin"},
+ *       {"/path/to/d.bin", "data/d.bin"},
+ *       {"/path/to/e.bin", "data/e.bin"}
+ *   };
+ *   rc = tacozip_append_files("out.taco.zip", entries, 3);
+ *   
+ *   // Append a single file (same API)
+ *   tacozip_append_entry_t single_entry = {"/path/to/f.bin", "data/f.bin"};
+ *   rc = tacozip_append_files("out.taco.zip", &single_entry, 1);
  *   
  *   // Replace an existing file in the archive
  *   rc = tacozip_replace_file("out.taco.zip", "a.bin", "/path/to/new_a.bin");
@@ -97,6 +106,12 @@ typedef struct {
     uint8_t count;                               /**< Number of valid entries (0-7). */
     taco_meta_entry_t entries[TACO_GHOST_MAX_ENTRIES]; /**< Metadata entries array. */
 } taco_meta_array_t;
+
+/** @brief Entry for append operations (single or batch) */
+typedef struct {
+    const char *src_path;  /**< Path to the source file on filesystem. */
+    const char *arc_name;  /**< Name to use for the file in the archive. */
+} tacozip_append_entry_t;
 
 /* Export / visibility macro */
 #if defined(_WIN32) || defined(__CYGWIN__)
@@ -200,26 +215,48 @@ int tacozip_update_ghost(const char *zip_path,
                         size_t array_size);
 
 /**
- * @brief Append a new file to an existing TACO archive.
+ * @brief Append one or more files to an existing TACO archive.
  *
- * Adds a new file to an existing archive created by this library.
- * The TACO Ghost and existing files remain unchanged. The new file will use 
+ * Adds new files to an existing archive created by this library. This function
+ * can append a single file or multiple files in a single operation. When appending
+ * multiple files, this is much more efficient than multiple individual operations
+ * as it only updates the Central Directory once.
+ * 
+ * The TACO Ghost and existing files remain unchanged. All new files will use 
  * STORE method (no compression) like all other files in the archive.
  *
  * @param zip_path    Path to an existing archive created by this library.
- * @param src_path    Path to the file to append to the archive.
- * @param arc_name    Name to use for the file in the archive.
+ * @param entries     Array of tacozip_append_entry_t specifying files to append.
+ * @param num_entries Number of entries in the array (1 for single file append).
  * @return            TACOZ_OK on success; negative error code otherwise.
- *                    Returns TACOZ_ERR_EXISTS if arc_name already exists in archive.
+ *                    Returns TACOZ_ERR_EXISTS if any arc_name already exists in archive.
+ *                    Returns TACOZ_ERR_IO if any src_path cannot be read.
  *
- * @note The arc_name must not conflict with existing files in the archive.
+ * @note All arc_name values must not conflict with existing files in the archive.
  * @note This operation preserves the TACO Ghost and all metadata entries.
- * @note The appended file will use STORE compression method for consistency.
+ * @note All appended files will use STORE compression method for consistency.
+ * @note For single file append, pass num_entries=1 with a single entry.
+ * @note For multiple files, this operation is atomic - either all files are
+ *       appended successfully or none are (archive remains unchanged on error).
+ *
+ * @code
+ * // Single file append
+ * tacozip_append_entry_t entry = {"/path/to/file.bin", "data/file.bin"};
+ * int rc = tacozip_append_files("archive.taco", &entry, 1);
+ * 
+ * // Multiple files append
+ * tacozip_append_entry_t entries[] = {
+ *     {"/path/to/file1.bin", "data/file1.bin"},
+ *     {"/path/to/file2.bin", "data/file2.bin"},
+ *     {"/path/to/file3.bin", "data/file3.bin"}
+ * };
+ * int rc = tacozip_append_files("archive.taco", entries, 3);
+ * @endcode
  */
 TACOZIP_EXPORT
-int tacozip_append_file(const char *zip_path,
-                       const char *src_path,
-                       const char *arc_name);
+int tacozip_append_files(const char *zip_path,
+                        const tacozip_append_entry_t *entries,
+                        size_t num_entries);
 
 /**
  * @brief Replace a specific file in an existing TACO archive.
@@ -270,9 +307,10 @@ int tacozip_replace_file(const char *zip_path,
  *
  * ## File Operations
  * - tacozip_replace_file() preserves the TACO Ghost and all metadata
- * - tacozip_append_file() preserves the TACO Ghost and all metadata
+ * - tacozip_append_files() preserves the TACO Ghost and all metadata
  * - All file operations maintain STORE compression method for consistency
  * - File name matching uses exact string comparison
+ * - tacozip_append_files() supports both single and batch operations efficiently
  */
 
 #ifdef __cplusplus

@@ -31,6 +31,7 @@ endif()
 
 option(BUILD_SHARED_LIBS              "Build shared libraries" ON)
 option(TACOZIP_BUILD_STATIC           "Also build a static lib" OFF)
+option(TACOZIP_DEBUG_BUILD            "Enable debug build with TACOZIP_DEBUG statements" OFF)
 option(TACOZIP_STRICT_WARNINGS        "Enable strict warnings" ON)
 option(TACOZIP_WARNINGS_AS_ERRORS     "Treat warnings as errors" ON)
 option(TACOZIP_ENABLE_IPO             "Enable LTO/IPO when supported" ON)
@@ -124,7 +125,7 @@ if(TACOZIP_BUILD_STATIC)
   target_link_libraries(tacozip_static PRIVATE ${LIBZIP_LIBRARIES})
 endif()
 
-# Large-file + GNU ext guards; UTF-8 flag + tunables
+# Large-file + GNU ext guards; UTF-8 flag + tunables + debug mode
 foreach(t IN ITEMS tacozip tacozip_static)
   if(TARGET ${t})
     target_compile_definitions(${t}
@@ -133,6 +134,7 @@ foreach(t IN ITEMS tacozip tacozip_static)
         _FILE_OFFSET_BITS=64
         _GNU_SOURCE
         $<$<BOOL:${TACOZIP_SET_UTF8_FLAG}>:TACOZ_SET_UTF8_FLAG=1>
+        $<$<BOOL:${TACOZIP_DEBUG_BUILD}>:TACOZIP_DEBUG_BUILD=1>
         TACOZ_COPY_BUFSZ=${TACOZ_COPY_BUFSZ}
     )
     target_compile_options(${t} PRIVATE ${LIBZIP_CFLAGS})
@@ -312,6 +314,7 @@ message(STATUS "Version                : ${PROJECT_VERSION}")
 message(STATUS "Build type             : ${CMAKE_BUILD_TYPE}")
 message(STATUS "Shared lib             : ${BUILD_SHARED_LIBS}")
 message(STATUS "Static lib (extra)     : ${TACOZIP_BUILD_STATIC}")
+message(STATUS "Debug build            : ${TACOZIP_DEBUG_BUILD}")
 message(STATUS "UTF-8 flag default     : ${TACOZIP_SET_UTF8_FLAG}")
 message(STATUS "Copy buffer (bytes)    : ${TACOZ_COPY_BUFSZ}")
 message(STATUS "Ghost max entries      : ${TACO_GHOST_MAX_ENTRIES} (hardcoded)")

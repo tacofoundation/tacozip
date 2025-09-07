@@ -281,6 +281,28 @@ int tacozip_replace_file(const char *zip_path,
                         const char *new_src_path);
 
 /* ========================================================================== */
+/*                              DEBUG SYSTEM                                 */
+/* ========================================================================== */
+
+/* Debug categories */
+#define TACOZIP_LOG_INIT     "INIT"
+#define TACOZIP_LOG_GHOST    "GHOST"  
+#define TACOZIP_LOG_APPEND   "APPEND"
+#define TACOZIP_LOG_CD       "CD"      /* Central Directory operations */
+#define TACOZIP_LOG_IO       "IO"      /* File I/O operations */
+#define TACOZIP_LOG_LIBZIP   "LIBZIP"  /* libzip operations */
+#define TACOZIP_LOG_ERROR    "ERROR"   /* Error conditions */
+
+#ifdef TACOZIP_DEBUG_BUILD
+#include <stdio.h>
+#define TACOZIP_DEBUG(category, msg, ...) \
+    fprintf(stderr, "[TACOZIP:%s] [%s:%d] " msg "\n", \
+            category, __func__, __LINE__, ##__VA_ARGS__)
+#else
+#define TACOZIP_DEBUG(category, msg, ...)  /* Zero cost in release */
+#endif
+
+/* ========================================================================== */
 /*                             Implementation Notes                           */
 /* ========================================================================== */
 /*

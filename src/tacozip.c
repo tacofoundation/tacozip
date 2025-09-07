@@ -794,6 +794,8 @@ int tacozip_update_ghost(const char *zip_path,
 int tacozip_append_files(const char *zip_path,
                         const tacozip_append_entry_t *entries,
                         size_t num_entries) {
+    TACOZIP_DEBUG(TACOZIP_LOG_APPEND, "Appending %zu files to '%s'", num_entries, zip_path);
+    
     if (!zip_path || !entries || num_entries == 0) {
         return TACOZ_ERR_PARAM;
     }
@@ -812,6 +814,7 @@ int tacozip_append_files(const char *zip_path,
         /* Verify source file exists and is readable */
         FILE *test_file = fopen(entries[i].src_path, "rb");
         if (!test_file) {
+            TACOZIP_DEBUG(TACOZIP_LOG_ERROR, "Source file not accessible: %s", entries[i].src_path);
             return TACOZ_ERR_IO;
         }
         fclose(test_file);
@@ -820,6 +823,7 @@ int tacozip_append_files(const char *zip_path,
     /* Open ZIP file for reading/writing */
     FILE *fp = fopen(zip_path, "r+b");
     if (!fp) {
+        TACOZIP_DEBUG(TACOZIP_LOG_ERROR, "Failed to open archive for append: %s", strerror(errno));
         return TACOZ_ERR_IO;
     }
 
@@ -830,14 +834,18 @@ int tacozip_append_files(const char *zip_path,
     uint16_t existing_count;
     int rc = read_existing_cd_blob(fp, &old_cd_offset, &existing_cd_data, &existing_cd_size, &existing_count);
     if (rc != TACOZ_OK) {
+        TACOZIP_DEBUG(TACOZIP_LOG_ERROR, "Failed to read existing Central Directory: %d", rc);
         fclose(fp);
         return rc;
     }
+    TACOZIP_DEBUG(TACOZIP_LOG_CD, "Read existing CD: %u entries, size=%u, offset=%llu", 
+                  existing_count, existing_cd_size, (unsigned long long)old_cd_offset);
 
     /* Check for duplicate names */
     for (size_t i = 0; i < num_entries; i++) {
         /* Check against existing files */
         if (filename_exists_in_cd(existing_cd_data, existing_cd_size, entries[i].arc_name) == 1) {
+            TACOZIP_DEBUG(TACOZIP_LOG_ERROR, "Duplicate filename: %s", entries[i].arc_name);
             free(existing_cd_data);
             fclose(fp);
             return TACOZ_ERR_EXISTS;
@@ -855,10 +863,12 @@ int tacozip_append_files(const char *zip_path,
 
     /* Position at end of last file (start of old Central Directory) */
     if (fseeko(fp, old_cd_offset, SEEK_SET) != 0) {
+        TACOZIP_DEBUG(TACOZIP_LOG_ERROR, "Failed to seek to CD offset: %s", strerror(errno));
         free(existing_cd_data);
         fclose(fp);
         return TACOZ_ERR_IO;
     }
+    TACOZIP_DEBUG(TACOZIP_LOG_APPEND, "Positioned at CD offset for file appending");
 
     /* Track new file info for CD entries */
     typedef struct {
@@ -876,6 +886,9 @@ int tacozip_append_files(const char *zip_path,
 
     /* Append each file */
     for (size_t i = 0; i < num_entries; i++) {
+        TACOZIP_DEBUG(TACOZIP_LOG_IO, "Writing file %zu/%zu: %s -> %s", 
+                      i+1, num_entries, entries[i].src_path, entries[i].arc_name);
+        
         /* Record local header offset */
         new_files[i].local_offset = ftello(fp);
         
@@ -945,10 +958,15 @@ int tacozip_append_files(const char *zip_path,
             fclose(fp);
             return TACOZ_ERR_IO;
         }
+        
+        TACOZIP_DEBUG(TACOZIP_LOG_IO, "File written: size=%llu, CRC32=0x%08x", 
+                      (unsigned long long)new_files[i].file_size, new_files[i].crc32);
     }
 
     /* Now write new Central Directory */
     uint64_t new_cd_offset = ftello(fp);
+    TACOZIP_DEBUG(TACOZIP_LOG_CD, "Writing new Central Directory at offset %llu", 
+                  (unsigned long long)new_cd_offset);
     
     /* First: write existing CD data as-is */
     if (fwrite(existing_cd_data, 1, existing_cd_size, fp) != existing_cd_size) {
@@ -999,6 +1017,8 @@ int tacozip_append_files(const char *zip_path,
     free(existing_cd_data);
     fclose(fp);
     
+    TACOZIP_DEBUG(TACOZIP_LOG_APPEND, "Successfully appended %zu files, total entries now: %u", 
+                  num_entries, total_entries);
     return TACOZ_OK;
 }
 

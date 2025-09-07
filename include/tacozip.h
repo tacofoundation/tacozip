@@ -335,10 +335,9 @@ int tacozip_replace_file(const char *zip_path,
 #define TACOZIP_LOG_ERROR    "ERROR"   /* Error conditions */
 
 #ifdef TACOZIP_DEBUG_BUILD
-#include <stdio.h>
-#define TACOZIP_DEBUG(category, msg, ...) \
-    fprintf(stderr, "[TACOZIP:%s] [%s:%d] " msg "\n", \
-            category, __func__, __LINE__, ##__VA_ARGS__)
+#define TACOZIP_DEBUG(category, msg, ...) do { \
+    printf("[TACOZIP:%s] [%s:%d] " msg "\n", #category, __func__, __LINE__, ##__VA_ARGS__); \
+} while(0)
 #else
 #define TACOZIP_DEBUG(category, msg, ...)  /* Zero cost in release */
 #endif

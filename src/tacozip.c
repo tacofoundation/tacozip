@@ -20,7 +20,10 @@
 #define _POSIX_C_SOURCE 200809L
 #endif
 #elif defined(_WIN32) || defined(_WIN64)
-/* Windows-specific includes handled separately */
+/* Windows-specific defines for file operations */
+#ifndef WIN32_LEAN_AND_MEAN
+#define WIN32_LEAN_AND_MEAN
+#endif
 #endif
 
 #ifndef _FILE_OFFSET_BITS
@@ -39,10 +42,13 @@
 
 #ifdef _WIN32
 #include <io.h>
+#include <fcntl.h>
 #define fileno _fileno
+#define ftruncate(fd, size) _chsize_s(fd, size)
 #else
 #include <unistd.h>
 #endif
+
 
 /* libzip includes */
 #include <zip.h>

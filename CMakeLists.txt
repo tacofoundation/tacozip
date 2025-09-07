@@ -49,6 +49,14 @@ include(GNUInstallDirs)
 include(CheckSymbolExists)
 
 # ------------------------------- dependencies ------------------------------
+# Find ZLIB first (required by libzip and used directly by tacozip)
+if(WIN32)
+  # On Windows, look in CMAKE_PREFIX_PATH first (where CI installs deps)
+  set(ZLIB_ROOT "${CMAKE_PREFIX_PATH}")
+endif()
+find_package(ZLIB REQUIRED)
+message(STATUS "Found ZLIB: ${ZLIB_LIBRARIES}")
+
 # Find libzip (required dependency)
 find_package(PkgConfig QUIET)
 if(PkgConfig_FOUND)
@@ -57,8 +65,30 @@ endif()
 
 # Fallback for systems without pkg-config or when pkg-config fails
 if(NOT LIBZIP_FOUND)
-  find_path(LIBZIP_INCLUDE_DIRS zip.h)
-  find_library(LIBZIP_LIBRARIES NAMES zip)
+  if(WIN32)
+    # On Windows, look in CMAKE_PREFIX_PATH first
+    set(CMAKE_FIND_ROOT_PATH "${CMAKE_PREFIX_PATH}")
+  endif()
+  
+  find_path(LIBZIP_INCLUDE_DIRS 
+    NAMES zip.h
+    PATHS ${CMAKE_PREFIX_PATH}
+    PATH_SUFFIXES include
+    NO_DEFAULT_PATH
+  )
+  find_library(LIBZIP_LIBRARIES 
+    NAMES zip libzip
+    PATHS ${CMAKE_PREFIX_PATH}
+    PATH_SUFFIXES lib
+    NO_DEFAULT_PATH
+  )
+  
+  # Fallback to system paths if not found in CMAKE_PREFIX_PATH
+  if(NOT LIBZIP_INCLUDE_DIRS OR NOT LIBZIP_LIBRARIES)
+    find_path(LIBZIP_INCLUDE_DIRS zip.h)
+    find_library(LIBZIP_LIBRARIES NAMES zip libzip)
+  endif()
+  
   if(NOT LIBZIP_INCLUDE_DIRS OR NOT LIBZIP_LIBRARIES)
     message(FATAL_ERROR "libzip not found. Please install libzip development packages.")
   endif()
@@ -119,10 +149,18 @@ if(TACOZIP_BUILD_STATIC)
   target_compile_features(tacozip_static PUBLIC c_std_11)
 endif()
 
-# Link libzip
-target_link_libraries(tacozip PRIVATE ${LIBZIP_LIBRARIES})
+# Link libraries: both libzip and zlib are required
+target_link_libraries(tacozip 
+  PRIVATE 
+    ${LIBZIP_LIBRARIES}
+    ZLIB::ZLIB
+)
 if(TACOZIP_BUILD_STATIC)
-  target_link_libraries(tacozip_static PRIVATE ${LIBZIP_LIBRARIES})
+  target_link_libraries(tacozip_static 
+    PRIVATE 
+      ${LIBZIP_LIBRARIES}
+      ZLIB::ZLIB
+  )
 endif()
 
 # Large-file + GNU ext guards; UTF-8 flag + tunables + debug mode
@@ -322,6 +360,7 @@ message(STATUS "Ghost payload (bytes)  : ${TACO_GHOST_PAYLOAD_SIZE} (hardcoded)"
 message(STATUS "IPO/LTO                : ${TACOZIP_ENABLE_IPO}")
 message(STATUS "Sanitizers             : ${TACOZIP_ENABLE_SANITIZERS}")
 message(STATUS "posix_fallocate()      : ${TACOZ_HAVE_POSIX_FALLOCATE}")
+message(STATUS "ZLIB found             : ${ZLIB_LIBRARIES}")
 message(STATUS "libzip found           : ${LIBZIP_LIBRARIES}")
 message(STATUS "Install prefix         : ${CMAKE_INSTALL_PREFIX}")
 message(STATUS "SKBUILD defined        : $<IF:$<BOOL:${SKBUILD}>,YES,NO>")

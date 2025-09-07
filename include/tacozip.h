@@ -173,24 +173,28 @@ const char* tacozip_get_version(void);
  * @param src_files    Array of absolute or relative filesystem paths (N elements).
  * @param arc_files    Array of archive names (N elements; used verbatim).
  * @param num_files    Number of files N.
- * @param meta_offsets Array of 7 uint64_t offsets (use 0 for unused entries).
- * @param meta_lengths Array of 7 uint64_t lengths (use 0 for unused entries).
- * @param array_size   Must be TACO_GHOST_MAX_ENTRIES (7) for validation.
+ * @param meta         Metadata structure containing up to 7 entries (use 0,0 for unused entries).
  * @return             TACOZ_OK on success; negative error code otherwise.
  *
- * @note The function automatically detects how many entries are valid by counting
- *       non-zero pairs from the start of the arrays.
- * @note Both meta_offsets and meta_lengths arrays must have exactly 7 elements.
+ * @note The function uses meta->count to determine how many entries are valid.
  * @note All files will be stored using STORE method (no compression).
+ * @note Unused entries in meta->entries should be set to {0, 0}.
+ *
+ * @code
+ * // Create archive with 2 metadata entries
+ * taco_meta_array_t meta = {
+ *     .count = 2,
+ *     .entries = {{1000, 500}, {2000, 750}, {0, 0}, {0, 0}, {0, 0}, {0, 0}, {0, 0}}
+ * };
+ * int rc = tacozip_create("out.taco.zip", src, arc, 2, &meta);
+ * @endcode
  */
 TACOZIP_EXPORT
 int tacozip_create(const char *zip_path,
                   const char * const *src_files,
                   const char * const *arc_files,
                   size_t num_files,
-                  const uint64_t *meta_offsets,
-                  const uint64_t *meta_lengths,
-                  size_t array_size);
+                  const taco_meta_array_t *meta);
 
 
 /**
@@ -200,19 +204,56 @@ int tacozip_create(const char *zip_path,
  * other files. The archive structure remains unchanged.
  *
  * @param zip_path     Path to an existing archive created by this library.
- * @param meta_offsets Array of 7 uint64_t offsets (use 0 for unused entries).
- * @param meta_lengths Array of 7 uint64_t lengths (use 0 for unused entries).
- * @param array_size   Must be TACO_GHOST_MAX_ENTRIES (7) for validation.
+ * @param meta         Metadata structure containing up to 7 entries (use 0,0 for unused entries).
  * @return             TACOZ_OK on success; negative error code otherwise.
  *
- * @note The function automatically detects how many entries are valid by counting
- *       non-zero pairs from the start of the arrays.
+ * @note The function uses meta->count to determine how many entries are valid.
+ * @note This operation is optimized and bypasses libzip for fast access.
+ * @note Unused entries in meta->entries should be set to {0, 0}.
+ *
+ * @code
+ * // Update ghost with new metadata
+ * taco_meta_array_t meta = {
+ *     .count = 3,
+ *     .entries = {{1500, 600}, {2000, 750}, {3000, 1000}, {0, 0}, {0, 0}, {0, 0}, {0, 0}}
+ * };
+ * int rc = tacozip_update_ghost("archive.taco", &meta);
+ * @endcode
  */
 TACOZIP_EXPORT
 int tacozip_update_ghost(const char *zip_path,
-                        const uint64_t *meta_offsets,
-                        const uint64_t *meta_lengths,
-                        size_t array_size);
+                        const taco_meta_array_t *meta);
+
+/**
+ * @brief Read all metadata entries from the ghost.
+ *
+ * Reads the TACO Ghost entry from an existing archive without affecting
+ * other files. This function extracts the current metadata stored in the ghost.
+ *
+ * @param zip_path     Path to an existing archive created by this library.
+ * @param meta_out     Output structure to receive metadata (caller must provide).
+ * @return             TACOZ_OK on success; negative error code otherwise.
+ *
+ * @note The function reads all 7 entries. Unused entries will be set to (0, 0).
+ * @note The meta_out->count field will contain the number of valid entries.
+ * @note This operation is optimized and bypasses libzip for fast access.
+ *
+ * @code
+ * // Read current ghost metadata
+ * taco_meta_array_t meta;
+ * int rc = tacozip_read_ghost("archive.taco", &meta);
+ * if (rc == TACOZ_OK) {
+ *     printf("Found %u metadata entries\n", meta.count);
+ *     for (int i = 0; i < meta.count; i++) {
+ *         printf("Entry %d: offset=%llu, length=%llu\n", 
+ *                i, meta.entries[i].offset, meta.entries[i].length);
+ *     }
+ * }
+ * @endcode
+ */
+TACOZIP_EXPORT
+int tacozip_read_ghost(const char *zip_path,
+                      taco_meta_array_t *meta_out);
 
 /**
  * @brief Append one or more files to an existing TACO archive.

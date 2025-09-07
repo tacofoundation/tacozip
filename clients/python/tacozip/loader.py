@@ -61,6 +61,7 @@ def self_check():
         'tacozip_update_ghost',
         'tacozip_append_files',
         'tacozip_replace_file',
+        'tacozip_read_ghost',
     ]
     
     missing_functions = []

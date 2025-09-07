@@ -9,14 +9,14 @@ from .loader import self_check
 
 # Import simplified API from bindings
 from .bindings import (
-    create, update_ghost, append_files, replace_file, get_library_version
+    create, update_ghost, append_files, replace_file, get_library_version, read_ghost
 )
 
 # Package metadata
 __author__ = "Cesar Aybar"
 __author_email__ = "cesar.aybar@uv.es"
 __description__ = "TACO ZIP: ZIP64 archive with TACO Ghost supporting up to 7 metadata entries"
-__url__ = "https://github.com/csaybar/tacozip"
+__url__ = "https://github.com/tacofoundation/tacozip"
 __license__ = "MIT"
 __tacozip_version__ = get_library_version()
 
@@ -52,5 +52,6 @@ __all__ = [
     "update_ghost",
     "append_files",
     "replace_file",
+    "read_ghost",
     "get_library_version"
 ]

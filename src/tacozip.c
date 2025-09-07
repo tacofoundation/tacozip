@@ -4,6 +4,7 @@
  * This simplified implementation provides a clean API with only the essential functions:
  * - tacozip_create() - create archive with up to 7 metadata entries
  * - tacozip_update_ghost() - write/update ghost metadata (optimized, bypasses libzip)
+ * - tacozip_read_ghost() - read ghost metadata (optimized, bypasses libzip)
  * - tacozip_append_files() - append files to archive (optimized, bypasses libzip)
  * - tacozip_replace_file() - replace existing file in archive
  * - tacozip_get_version() - get library version
@@ -98,35 +99,6 @@ static inline void le64(unsigned char *p, uint64_t v){
 /* ----------------------- Metadata helper functions ------------------------- */
 
 /**
- * @brief Count valid metadata entries by scanning until first (0,0) pair.
- * @param offsets Array of 7 offset values
- * @param lengths Array of 7 length values  
- * @return Number of valid entries (0-7)
- */
-static uint8_t count_valid_entries(const uint64_t *offsets, const uint64_t *lengths) {
-    for (size_t i = 0; i < TACO_GHOST_MAX_ENTRIES; i++) {
-        if (offsets[i] == 0 && lengths[i] == 0) {
-            return (uint8_t)i;  /* Found first (0,0) pair */
-        }
-    }
-    return TACO_GHOST_MAX_ENTRIES;  /* All 7 entries are valid */
-}
-
-/**
- * @brief Convert arrays to taco_meta_array_t structure.
- * @param offsets Input array of 7 offset values
- * @param lengths Input array of 7 length values
- * @param out Output structure
- */
-static void arrays_to_meta_struct(const uint64_t *offsets, const uint64_t *lengths, taco_meta_array_t *out) {
-    out->count = count_valid_entries(offsets, lengths);
-    for (size_t i = 0; i < TACO_GHOST_MAX_ENTRIES; i++) {
-        out->entries[i].offset = offsets[i];
-        out->entries[i].length = lengths[i];
-    }
-}
-
-/**
  * @brief Create ghost payload from metadata structure.
  * @param meta Input metadata structure
  * @param payload Output buffer (must be at least TACO_GHOST_PAYLOAD_SIZE bytes)
@@ -143,6 +115,36 @@ static void create_ghost_payload(const taco_meta_array_t *meta, unsigned char *p
     for (size_t i = 0; i < TACO_GHOST_MAX_ENTRIES; i++) {
         le64(pairs_start + i * 16 + 0, meta->entries[i].offset);
         le64(pairs_start + i * 16 + 8, meta->entries[i].length);
+    }
+}
+
+/**
+ * @brief Parse ghost payload into metadata structure.
+ * @param payload Input buffer (must be exactly TACO_GHOST_PAYLOAD_SIZE bytes)
+ * @param meta Output metadata structure
+ */
+static void parse_ghost_payload(const unsigned char *payload, taco_meta_array_t *meta) {
+    /* Extract count byte */
+    meta->count = payload[0];
+    
+    /* Clamp count to valid range */
+    if (meta->count > TACO_GHOST_MAX_ENTRIES) {
+        meta->count = TACO_GHOST_MAX_ENTRIES;
+    }
+
+    /* Parse 7 pairs of (offset, length) - 112 bytes total */
+    const unsigned char *pairs_start = payload + 4;
+    for (size_t i = 0; i < TACO_GHOST_MAX_ENTRIES; i++) {
+        /* Read little-endian uint64_t values */
+        uint64_t offset = 0, length = 0;
+        
+        for (int j = 0; j < 8; j++) {
+            offset |= ((uint64_t)pairs_start[i * 16 + j]) << (j * 8);
+            length |= ((uint64_t)pairs_start[i * 16 + 8 + j]) << (j * 8);
+        }
+        
+        meta->entries[i].offset = offset;
+        meta->entries[i].length = length;
     }
 }
 
@@ -665,20 +667,13 @@ static int calculate_ghost_payload_offset(FILE *fp, uint64_t *payload_offset) {
  * @brief Update ghost payload directly in file
  * @param fp File pointer opened for r+b
  * @param offset Byte offset where payload starts
- * @param meta_offsets Array of 7 offset values
- * @param meta_lengths Array of 7 length values
+ * @param meta Metadata structure containing entries to write
  * @return TACOZ_OK on success, error code on failure
  */
-static int write_ghost_payload_direct(FILE *fp, uint64_t offset, 
-                                     const uint64_t *meta_offsets, 
-                                     const uint64_t *meta_lengths) {
-    /* Convert arrays to metadata structure */
-    taco_meta_array_t meta = {0};
-    arrays_to_meta_struct(meta_offsets, meta_lengths, &meta);
-    
+static int write_ghost_payload_direct(FILE *fp, uint64_t offset, const taco_meta_array_t *meta) {
     /* Create payload */
     unsigned char payload[TACO_GHOST_PAYLOAD_SIZE];
-    create_ghost_payload(&meta, payload);
+    create_ghost_payload(meta, payload);
     
     /* Seek to payload position */
     if (fseek(fp, offset, SEEK_SET) != 0) {
@@ -698,6 +693,31 @@ static int write_ghost_payload_direct(FILE *fp, uint64_t offset,
     return TACOZ_OK;
 }
 
+/**
+ * @brief Read ghost payload directly from file
+ * @param fp File pointer opened for reading
+ * @param offset Byte offset where payload starts
+ * @param meta Output metadata structure
+ * @return TACOZ_OK on success, error code on failure
+ */
+static int read_ghost_payload_direct(FILE *fp, uint64_t offset, taco_meta_array_t *meta) {
+    /* Seek to payload position */
+    if (fseek(fp, offset, SEEK_SET) != 0) {
+        return TACOZ_ERR_IO;
+    }
+    
+    /* Read payload */
+    unsigned char payload[TACO_GHOST_PAYLOAD_SIZE];
+    if (fread(payload, 1, TACO_GHOST_PAYLOAD_SIZE, fp) != TACO_GHOST_PAYLOAD_SIZE) {
+        return TACOZ_ERR_IO;
+    }
+    
+    /* Parse payload into structure */
+    parse_ghost_payload(payload, meta);
+    
+    return TACOZ_OK;
+}
+
 /* ========================================================================== */
 /*                               CORE API                                    */
 /* ========================================================================== */
@@ -710,32 +730,30 @@ int tacozip_create(const char *zip_path,
                   const char * const *src_files,
                   const char * const *arc_files,
                   size_t num_files,
-                  const uint64_t *meta_offsets,
-                  const uint64_t *meta_lengths,
-                  size_t array_size)
+                  const taco_meta_array_t *meta)
 {
-    if (!zip_path || !src_files || !arc_files || num_files == 0)
-        return TACOZ_ERR_PARAM;
+    TACOZIP_DEBUG(TACOZIP_LOG_INIT, "Creating archive '%s' with %zu files", zip_path, num_files);
     
-    if (!meta_offsets || !meta_lengths || array_size != TACO_GHOST_MAX_ENTRIES)
+    if (!zip_path || !src_files || !arc_files || num_files == 0 || !meta)
         return TACOZ_ERR_PARAM;
 
     int error;
     zip_t *za = zip_open(zip_path, ZIP_CREATE | ZIP_TRUNCATE, &error);
     if (!za) {
+        TACOZIP_DEBUG(TACOZIP_LOG_ERROR, "Failed to create archive: libzip error %d", error);
         return TACOZ_ERR_IO;
     }
 
-    /* Convert arrays to metadata structure */
-    taco_meta_array_t meta = {0};
-    arrays_to_meta_struct(meta_offsets, meta_lengths, &meta);
+    TACOZIP_DEBUG(TACOZIP_LOG_GHOST, "Ghost metadata: %u valid entries", meta->count);
 
     /* Add ghost entry first (so it appears at the beginning physically) */
-    int rc = add_ghost_to_archive(za, &meta);
+    int rc = add_ghost_to_archive(za, meta);
     if (rc != TACOZ_OK) {
+        TACOZIP_DEBUG(TACOZIP_LOG_ERROR, "Failed to add ghost entry: %d", rc);
         zip_close(za);
         return rc;
     }
+    TACOZIP_DEBUG(TACOZIP_LOG_GHOST, "Ghost entry added successfully");
 
     /* Add each regular file */
     for (size_t i = 0; i < num_files; i++) {
@@ -744,31 +762,37 @@ int tacozip_create(const char *zip_path,
             return TACOZ_ERR_PARAM;
         }
         
+        TACOZIP_DEBUG(TACOZIP_LOG_LIBZIP, "Adding file %zu/%zu: %s -> %s", i+1, num_files, src_files[i], arc_files[i]);
         rc = add_file_to_archive(za, src_files[i], arc_files[i]);
         if (rc != TACOZ_OK) {
+            TACOZIP_DEBUG(TACOZIP_LOG_ERROR, "Failed to add file '%s': %d", src_files[i], rc);
             zip_close(za);
             return rc;
         }
     }
 
     /* Close and finalize the archive */
+    TACOZIP_DEBUG(TACOZIP_LOG_LIBZIP, "Finalizing archive");
     if (zip_close(za) < 0) {
+        TACOZIP_DEBUG(TACOZIP_LOG_ERROR, "Failed to finalize archive");
         return TACOZ_ERR_IO;
     }
 
+    TACOZIP_DEBUG(TACOZIP_LOG_INIT, "Archive created successfully");
     return TACOZ_OK;
 }
 
 int tacozip_update_ghost(const char *zip_path,
-                        const uint64_t *meta_offsets,
-                        const uint64_t *meta_lengths,
-                        size_t array_size) {
-    if (!zip_path || !meta_offsets || !meta_lengths || array_size != TACO_GHOST_MAX_ENTRIES)
+                        const taco_meta_array_t *meta) {
+    TACOZIP_DEBUG(TACOZIP_LOG_GHOST, "Updating ghost metadata in '%s'", zip_path);
+    
+    if (!zip_path || !meta)
         return TACOZ_ERR_PARAM;
 
     /* Open file for reading and writing */
     FILE *fp = fopen(zip_path, "r+b");
     if (!fp) {
+        TACOZIP_DEBUG(TACOZIP_LOG_ERROR, "Failed to open file for ghost update: %s", strerror(errno));
         return TACOZ_ERR_IO;
     }
 
@@ -776,18 +800,63 @@ int tacozip_update_ghost(const char *zip_path,
     uint64_t payload_offset;
     int rc = calculate_ghost_payload_offset(fp, &payload_offset);
     if (rc != TACOZ_OK) {
+        TACOZIP_DEBUG(TACOZIP_LOG_ERROR, "Failed to calculate ghost payload offset: %d", rc);
         fclose(fp);
         return rc;
     }
+    TACOZIP_DEBUG(TACOZIP_LOG_GHOST, "Ghost payload offset: %llu", (unsigned long long)payload_offset);
 
     /* Update ghost payload directly */
-    rc = write_ghost_payload_direct(fp, payload_offset, meta_offsets, meta_lengths);
+    rc = write_ghost_payload_direct(fp, payload_offset, meta);
     if (rc != TACOZ_OK) {
+        TACOZIP_DEBUG(TACOZIP_LOG_ERROR, "Failed to write ghost payload: %d", rc);
         fclose(fp);
         return rc;
     }
 
     fclose(fp);
+    TACOZIP_DEBUG(TACOZIP_LOG_GHOST, "Ghost metadata updated successfully");
+    return TACOZ_OK;
+}
+
+int tacozip_read_ghost(const char *zip_path,
+                      taco_meta_array_t *meta_out) {
+    TACOZIP_DEBUG(TACOZIP_LOG_GHOST, "Reading ghost metadata from '%s'", zip_path);
+    
+    if (!zip_path || !meta_out) {
+        return TACOZ_ERR_PARAM;
+    }
+
+    /* Initialize output structure */
+    memset(meta_out, 0, sizeof(taco_meta_array_t));
+
+    /* Open file for reading */
+    FILE *fp = fopen(zip_path, "rb");
+    if (!fp) {
+        TACOZIP_DEBUG(TACOZIP_LOG_ERROR, "Failed to open file for ghost read: %s", strerror(errno));
+        return TACOZ_ERR_IO;
+    }
+
+    /* Calculate ghost payload offset */
+    uint64_t payload_offset;
+    int rc = calculate_ghost_payload_offset(fp, &payload_offset);
+    if (rc != TACOZ_OK) {
+        TACOZIP_DEBUG(TACOZIP_LOG_ERROR, "Failed to calculate ghost payload offset: %d", rc);
+        fclose(fp);
+        return rc;
+    }
+    TACOZIP_DEBUG(TACOZIP_LOG_GHOST, "Ghost payload offset: %llu", (unsigned long long)payload_offset);
+
+    /* Read ghost payload directly */
+    rc = read_ghost_payload_direct(fp, payload_offset, meta_out);
+    if (rc != TACOZ_OK) {
+        TACOZIP_DEBUG(TACOZIP_LOG_ERROR, "Failed to read ghost payload: %d", rc);
+        fclose(fp);
+        return rc;
+    }
+
+    fclose(fp);
+    TACOZIP_DEBUG(TACOZIP_LOG_GHOST, "Ghost metadata read successfully: %u valid entries", meta_out->count);
     return TACOZ_OK;
 }
 

@@ -339,8 +339,9 @@ int tacozip_replace_file(const char *zip_path,
     printf("[TACOZIP:%s] [%s:%d] " msg "\n", #category, __func__, __LINE__, ##__VA_ARGS__); \
 } while(0)
 #else
-#define TACOZIP_DEBUG(category, msg, ...) do { /* Zero cost in release */ } while(0)
+#define TACOZIP_DEBUG(...) do { } while(0)
 #endif
+
 
 /* ========================================================================== */
 /*                             Implementation Notes                           */

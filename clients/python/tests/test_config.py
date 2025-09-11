@@ -11,25 +11,27 @@ class TestConfig:
         assert config.TACOZ_OK == 0
         assert config.TACOZ_ERR_IO == -1
         assert config.TACOZ_ERR_LIBZIP == -2
-        assert config.TACOZ_ERR_INVALID_GHOST == -3
+        assert config.TACOZ_ERR_INVALID_HEADER == -3
         assert config.TACOZ_ERR_PARAM == -4
         assert config.TACOZ_ERR_NOT_FOUND == -5
+        assert config.TACOZ_ERR_EXISTS == -6
     
-    def test_ghost_constants(self):
-        """Test TACO Ghost constants."""
-        assert config.TACO_GHOST_MAX_ENTRIES == 7
-        assert config.TACO_GHOST_SIZE == 160
-        assert config.TACO_GHOST_NAME == "TACO_GHOST"
-        assert config.TACO_GHOST_NAME_LEN == 10
-        assert config.TACO_GHOST_EXTRA_ID == 0x7454
-        assert config.TACO_GHOST_EXTRA_SIZE == 116
+    def test_header_constants(self):
+        """Test TACO Header constants."""
+        assert config.TACO_HEADER_MAX_ENTRIES == 7
+        assert config.TACO_HEADER_SIZE == 161
+        assert config.TACO_HEADER_NAME == "TACO_HEADER"
+        assert config.TACO_HEADER_NAME_LEN == 11
+        assert config.TACO_HEADER_EXTRA_ID == 0x7454
+        assert config.TACO_HEADER_PAYLOAD_SIZE == 116
     
     def test_error_messages(self):
         """Test error messages exist for all error codes."""
         assert config.TACOZ_ERR_IO in config.ERROR_MESSAGES
-        assert config.TACOZ_ERR_INVALID_GHOST in config.ERROR_MESSAGES
+        assert config.TACOZ_ERR_INVALID_HEADER in config.ERROR_MESSAGES
         assert config.TACOZ_ERR_PARAM in config.ERROR_MESSAGES
         assert config.TACOZ_ERR_NOT_FOUND in config.ERROR_MESSAGES
+        assert config.TACOZ_ERR_EXISTS in config.ERROR_MESSAGES
         
         # Check messages are not empty
         for code, message in config.ERROR_MESSAGES.items():

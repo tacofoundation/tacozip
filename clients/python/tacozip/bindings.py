@@ -4,7 +4,7 @@ from ctypes import c_char_p, c_size_t, c_uint64, c_int, c_uint8, Structure, POIN
 from typing import List, Tuple, Union
 
 from .loader import get_library
-from .config import TACOZ_OK, TACO_GHOST_MAX_ENTRIES
+from .config import TACOZ_OK, TACO_HEADER_MAX_ENTRIES
 from .exceptions import TacozipError
 
 
@@ -18,7 +18,7 @@ class TacoMetaArray(Structure):
     """Array of up to 7 metadata entries."""
     _fields_ = [
         ("count", c_uint8),
-        ("entries", TacoMetaEntry * TACO_GHOST_MAX_ENTRIES),
+        ("entries", TacoMetaEntry * TACO_HEADER_MAX_ENTRIES),
     ]
 
 
@@ -43,15 +43,15 @@ _lib.tacozip_create.argtypes = [
 ]
 _lib.tacozip_create.restype = c_int
 
-_lib.tacozip_update_ghost.argtypes = [
+_lib.tacozip_update_header.argtypes = [
     c_char_p, POINTER(TacoMetaArray)
 ]
-_lib.tacozip_update_ghost.restype = c_int
+_lib.tacozip_update_header.restype = c_int
 
-_lib.tacozip_read_ghost.argtypes = [
+_lib.tacozip_read_header.argtypes = [
     c_char_p, POINTER(TacoMetaArray)
 ]
-_lib.tacozip_read_ghost.restype = c_int
+_lib.tacozip_read_header.restype = c_int
 
 _lib.tacozip_append_files.argtypes = [
     c_char_p, POINTER(TacoAppendEntry), c_size_t
@@ -90,8 +90,8 @@ def _prepare_string_array(strings: List[str]) -> Tuple[ctypes.Array, List[bytes]
 
 def _prepare_meta_array(entries: List[Tuple[int, int]]) -> TacoMetaArray:
     """Convert Python entries list to C TacoMetaArray structure."""
-    if len(entries) > TACO_GHOST_MAX_ENTRIES:
-        raise ValueError(f"Too many entries: {len(entries)} > {TACO_GHOST_MAX_ENTRIES}")
+    if len(entries) > TACO_HEADER_MAX_ENTRIES:
+        raise ValueError(f"Too many entries: {len(entries)} > {TACO_HEADER_MAX_ENTRIES}")
     
     meta = TacoMetaArray()
     
@@ -104,7 +104,7 @@ def _prepare_meta_array(entries: List[Tuple[int, int]]) -> TacoMetaArray:
     meta.count = valid_count
     
     # Fill all 7 entries (pad with zeros if needed)
-    for i in range(TACO_GHOST_MAX_ENTRIES):
+    for i in range(TACO_HEADER_MAX_ENTRIES):
         if i < len(entries):
             meta.entries[i].offset = entries[i][0]
             meta.entries[i].length = entries[i][1]
@@ -146,15 +146,13 @@ def _prepare_append_entries(entries: List[Tuple[str, str]]) -> Tuple[ctypes.Arra
     return entry_array, byte_strings
 
 
-def _fast_normalize_inputs(src_files: List[Union[str, pathlib.Path]], 
+def _normalize_inputs(src_files: List[Union[str, pathlib.Path]], 
                           arc_files: List[str] = None) -> Tuple[List[str], List[str]]:
-    """Fast input normalization with minimal validation."""
+    """Input normalization with minimal validation."""
     
     # Convert to strings, no heavy validation
-    if isinstance(src_files[0], pathlib.Path):
-        normalized_src = [str(f.resolve()) for f in src_files]
-    else:
-        normalized_src = [str(pathlib.Path(f).resolve()) for f in src_files]
+    normalized_src = [str(pathlib.Path(f).resolve()) for f in src_files]
+
     
     # Handle archive names
     if arc_files is not None:
@@ -168,10 +166,10 @@ def _fast_normalize_inputs(src_files: List[Union[str, pathlib.Path]],
     return normalized_src, normalized_arc
 
 
-# Simplified API functions with consistent entries parameter
+# API functions with TACO_HEADER
 def create(zip_path: str, src_files: List[Union[str, pathlib.Path]], 
            arc_files: List[str] = None, entries: List[Tuple[int, int]] = None):
-    """Create archive with up to 7 metadata entries. Unified API."""
+    """Create archive with up to 7 metadata entries in TACO header."""
     
     # Default entries
     if entries is None:
@@ -181,16 +179,16 @@ def create(zip_path: str, src_files: List[Union[str, pathlib.Path]],
     validated_zip_path = _minimal_output_check(zip_path)
     
     # Fast input normalization
-    normalized_src, normalized_arc = _fast_normalize_inputs(src_files, arc_files)
+    normalized_src, normalized_arc = _normalize_inputs(src_files, arc_files)
     
     # Prepare arrays
     src_array, src_bytes = _prepare_string_array(normalized_src)
     arc_array, arc_bytes = _prepare_string_array(normalized_arc)
     meta = _prepare_meta_array(entries)
     
-    print(f"📦 Creating archive with {len(normalized_src)} files...")
+    print(f"Creating archive with {len(normalized_src)} files...")
     
-    # Call C function with new API
+    # Call C function
     result = _lib.tacozip_create(
         validated_zip_path.encode('utf-8'), src_array, arc_array,
         len(normalized_src), ctypes.byref(meta)
@@ -200,24 +198,24 @@ def create(zip_path: str, src_files: List[Union[str, pathlib.Path]],
     
     try:
         archive_size = pathlib.Path(validated_zip_path).stat().st_size
-        print(f"✅ Archive: {validated_zip_path} ({archive_size:,} bytes)")
+        print(f"Archive: {validated_zip_path} ({archive_size:,} bytes)")
     except:
-        print(f"✅ Archive created: {validated_zip_path}")
+        print(f"Archive created: {validated_zip_path}")
 
 
-def update_ghost(zip_path: str, entries: List[Tuple[int, int]]):
-    """Update all metadata entries in ghost."""
+def update_header(zip_path: str, entries: List[Tuple[int, int]]):
+    """Update all metadata entries in TACO header."""
     meta = _prepare_meta_array(entries)
     
-    result = _lib.tacozip_update_ghost(
+    result = _lib.tacozip_update_header(
         zip_path.encode('utf-8'), ctypes.byref(meta)
     )
     
     _check_result(result)
 
 
-def read_ghost(zip_path: str) -> List[Tuple[int, int]]:
-    """Read all metadata entries from ghost.
+def read_header(zip_path: str) -> List[Tuple[int, int]]:
+    """Read all metadata entries from TACO header.
     
     Args:
         zip_path: Path to existing TACO archive
@@ -226,14 +224,14 @@ def read_ghost(zip_path: str) -> List[Tuple[int, int]]:
         List of (offset, length) tuples containing the metadata entries
         
     Example:
-        entries = read_ghost("archive.taco")
+        entries = read_header("archive.taco")
         print(f"Found {len(entries)} metadata entries")
         for i, (offset, length) in enumerate(entries):
             print(f"Entry {i}: offset={offset}, length={length}")
     """
     meta = TacoMetaArray()
     
-    result = _lib.tacozip_read_ghost(
+    result = _lib.tacozip_read_header(
         zip_path.encode('utf-8'), ctypes.byref(meta)
     )
     

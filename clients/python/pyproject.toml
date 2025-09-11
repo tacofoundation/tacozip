@@ -4,8 +4,8 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "tacozip"
-version = "0.8.1"
-description = "TACO ZIP: ZIP64 archive with TACO Ghost supporting up to 7 metadata entries"
+version = "0.9.0"
+description = "TACO ZIP: ZIP64 archive with TACO Header for fast metadata access"
 readme = "README.md"
 license = "MIT"
 authors = [

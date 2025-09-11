@@ -222,9 +222,9 @@ jobs:
         python -c "
         import tacozip
         
-        # Test constants
+        # Test constants - UPDATED for new TACO_HEADER API
         print(f'✅ TACOZ_OK = {tacozip.TACOZ_OK}')
-        print(f'✅ TACO_GHOST_MAX_ENTRIES = {tacozip.TACO_GHOST_MAX_ENTRIES}')
+        print(f'✅ TACO_HEADER_MAX_ENTRIES = {tacozip.TACO_HEADER_MAX_ENTRIES}')
         
         # Test exceptions
         try:
@@ -234,8 +234,8 @@ jobs:
             print(f'❌ Exception system failed: {e}')
             exit(1)
         
-        # Test function availability
-        required_funcs = ['create', 'read_ghost', 'update_ghost', 'create_multi', 'read_ghost_multi', 'update_ghost_multi', 'replace_file']
+        # Test function availability - CORRECTED to match your actual package exports
+        required_funcs = ['create', 'read_header', 'update_header', 'append_files', 'replace_file', 'get_library_version']
         missing = [f for f in required_funcs if not hasattr(tacozip, f)]
         if missing:
             print(f'❌ Missing functions: {missing}')
@@ -294,7 +294,7 @@ jobs:
         echo "| Library Path Setup | ✅ | DYLD_LIBRARY_PATH configured |" >> $GITHUB_STEP_SUMMARY
         echo "| Package Installation | ✅ | Python package with native lib |" >> $GITHUB_STEP_SUMMARY
         echo "| Native Library Loading | ✅ | Real library, not mocked |" >> $GITHUB_STEP_SUMMARY
-        echo "| Unit Tests (61 tests) | ✅ | Full test suite |" >> $GITHUB_STEP_SUMMARY
+        echo "| Unit Tests | ✅ | Full test suite |" >> $GITHUB_STEP_SUMMARY
         echo "| Coverage Analysis | ✅ | Code coverage measurement |" >> $GITHUB_STEP_SUMMARY
         echo "| Codecov Upload | ✅ | Coverage data uploaded |" >> $GITHUB_STEP_SUMMARY
         echo "| Performance Tests | ✅ | Real library benchmarks |" >> $GITHUB_STEP_SUMMARY

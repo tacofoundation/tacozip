@@ -1,7 +1,7 @@
 cmake_minimum_required(VERSION 3.15)
 
 # -----------------------------------------------------------------------------
-# tacozip — ZIP64 (always ZIP64), STORE-only writer with TACO Ghost supporting
+# tacozip — ZIP64 (always ZIP64), STORE-only writer with TACO Header supporting
 # up to 7 metadata entries. Each entry points to a different parquet file.
 # Now uses libzip backend instead of custom ZIP implementation.
 #
@@ -11,9 +11,9 @@ cmake_minimum_required(VERSION 3.15)
 #   cmake --install --preset release
 # -----------------------------------------------------------------------------
 project(tacozip
-  VERSION 0.8.1
+  VERSION 0.9.0
   LANGUAGES C
-  DESCRIPTION "TACO ZIP: ZIP64 archive with TACO Ghost supporting up to 7 metadata entries (libzip backend)"
+  DESCRIPTION "TACO ZIP: ZIP64 archive with TACO Header for fast metadata access"
 )
 
 # Add project version to compile definitions
@@ -42,8 +42,8 @@ option(TACOZIP_SET_UTF8_FLAG          "Set UTF-8 general purpose bit (compile-ti
 set(TACOZ_COPY_BUFSZ 1048576  CACHE STRING "Copy buffer size (bytes), default 1 MiB")
 
 # Multi-parquet configuration (informational only - hardcoded in source)
-set(TACO_GHOST_MAX_ENTRIES 7 CACHE STRING "Maximum metadata entries in ghost (hardcoded)")
-set(TACO_GHOST_PAYLOAD_SIZE 116 CACHE STRING "Size of TACO ghost payload in bytes (hardcoded)")
+set(TACO_HEADER_MAX_ENTRIES 7 CACHE STRING "Maximum metadata entries in header (hardcoded)")
+set(TACO_HEADER_PAYLOAD_SIZE 116 CACHE STRING "Size of TACO header payload in bytes (hardcoded)")
 
 include(GNUInstallDirs)
 include(CheckSymbolExists)
@@ -355,8 +355,8 @@ message(STATUS "Static lib (extra)     : ${TACOZIP_BUILD_STATIC}")
 message(STATUS "Debug build            : ${TACOZIP_DEBUG_BUILD}")
 message(STATUS "UTF-8 flag default     : ${TACOZIP_SET_UTF8_FLAG}")
 message(STATUS "Copy buffer (bytes)    : ${TACOZ_COPY_BUFSZ}")
-message(STATUS "Ghost max entries      : ${TACO_GHOST_MAX_ENTRIES} (hardcoded)")
-message(STATUS "Ghost payload (bytes)  : ${TACO_GHOST_PAYLOAD_SIZE} (hardcoded)")
+message(STATUS "Header max entries     : ${TACO_HEADER_MAX_ENTRIES} (hardcoded)")
+message(STATUS "Header payload (bytes) : ${TACO_HEADER_PAYLOAD_SIZE} (hardcoded)")
 message(STATUS "IPO/LTO                : ${TACOZIP_ENABLE_IPO}")
 message(STATUS "Sanitizers             : ${TACOZIP_ENABLE_SANITIZERS}")
 message(STATUS "posix_fallocate()      : ${TACOZ_HAVE_POSIX_FALLOCATE}")

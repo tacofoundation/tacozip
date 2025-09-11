@@ -11,25 +11,30 @@ def mock_library():
     """Fixture providing a mock C library."""
     mock_lib = Mock()
     
-    # Set up default return values
+    # Set up default return values for actual functions
+    mock_lib.tacozip_get_version.return_value = b"0.9.0"
     mock_lib.tacozip_create.return_value = 0
-    mock_lib.tacozip_read_ghost.return_value = 0
-    mock_lib.tacozip_update_ghost.return_value = 0
-    mock_lib.tacozip_create_multi.return_value = 0
-    mock_lib.tacozip_read_ghost_multi.return_value = 0
-    mock_lib.tacozip_update_ghost_multi.return_value = 0
+    mock_lib.tacozip_update_header.return_value = 0
+    mock_lib.tacozip_read_header.return_value = 0
+    mock_lib.tacozip_append_files.return_value = 0
     mock_lib.tacozip_replace_file.return_value = 0
     
-    # Add all required function attributes
+    # Add all required function attributes that match our C API
     required_functions = [
-        'tacozip_create', 'tacozip_read_ghost', 'tacozip_update_ghost',
-        'tacozip_create_multi', 'tacozip_read_ghost_multi', 
-        'tacozip_update_ghost_multi', 'tacozip_replace_file'
+        'tacozip_get_version',
+        'tacozip_create', 
+        'tacozip_update_header',
+        'tacozip_read_header',
+        'tacozip_append_files',
+        'tacozip_replace_file'
     ]
     
     for func_name in required_functions:
         if not hasattr(mock_lib, func_name):
-            setattr(mock_lib, func_name, Mock(return_value=0))
+            if func_name == 'tacozip_get_version':
+                setattr(mock_lib, func_name, Mock(return_value=b"1.0.0"))
+            else:
+                setattr(mock_lib, func_name, Mock(return_value=0))
     
     return mock_lib
 
@@ -56,15 +61,21 @@ def mock_native_library():
     with patch('tacozip.loader._load_shared') as mock_load:
         mock_lib = Mock()
         
-        # Add all required functions
+        # Add all required functions that match our actual C API
         required_functions = [
-            'tacozip_create', 'tacozip_read_ghost', 'tacozip_update_ghost',
-            'tacozip_create_multi', 'tacozip_read_ghost_multi', 
-            'tacozip_update_ghost_multi', 'tacozip_replace_file'
+            'tacozip_get_version',
+            'tacozip_create',
+            'tacozip_update_header',
+            'tacozip_read_header', 
+            'tacozip_append_files',
+            'tacozip_replace_file'
         ]
         
         for func_name in required_functions:
-            func_mock = Mock(return_value=0)
+            if func_name == 'tacozip_get_version':
+                func_mock = Mock(return_value=b"1.0.0")
+            else:
+                func_mock = Mock(return_value=0)
             setattr(mock_lib, func_name, func_mock)
         
         mock_load.return_value = mock_lib
@@ -93,8 +104,8 @@ if __name__ == "__main__":
     
     try:
         result = subprocess.run(cmd, check=True)
-        print("\n✓ All tests passed with 100% coverage!")
+        print("\nAll tests passed with 100% coverage!")
         sys.exit(0)
     except subprocess.CalledProcessError as e:
-        print(f"\n✗ Tests failed with exit code {e.returncode}")
+        print(f"\nTests failed with exit code {e.returncode}")
         sys.exit(e.returncode)

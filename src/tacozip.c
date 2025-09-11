@@ -1,10 +1,10 @@
 /*
- * tacozip.c — ZIP64 (STORE-only) writer with libzip backend and TACO Ghost supporting up to 7 metadata entries.
+ * tacozip.c — ZIP64 (STORE-only) writer with libzip backend and TACO Header supporting up to 7 metadata entries.
  *
  * This simplified implementation provides a clean API with only the essential functions:
  * - tacozip_create() - create archive with up to 7 metadata entries
- * - tacozip_update_ghost() - write/update ghost metadata (optimized, bypasses libzip)
- * - tacozip_read_ghost() - read ghost metadata (optimized, bypasses libzip)
+ * - tacozip_update_header() - write/update header metadata (optimized, bypasses libzip)
+ * - tacozip_read_header() - read header metadata (optimized, bypasses libzip)
  * - tacozip_append_files() - append files to archive (optimized, bypasses libzip)
  * - tacozip_replace_file() - replace existing file in archive
  * - tacozip_get_version() - get library version
@@ -36,6 +36,7 @@
 #include <stdint.h>
 #include <string.h>
 #include <errno.h>
+#include <time.h>
 
 #include <sys/types.h>
 #include <sys/stat.h>
@@ -102,15 +103,47 @@ static inline void le64(unsigned char *p, uint64_t v){
     p[7] = (unsigned char)(v >> 56);
 }
 
+/* ----------------------- Timestamp conversion functions ------------------- */
+
+/**
+ * @brief Convert Unix timestamp to ZIP MS-DOS format (cross-platform)
+ * @param unix_time Unix timestamp from stat()
+ * @param dos_time Output: MS-DOS time (16-bit)
+ * @param dos_date Output: MS-DOS date (16-bit) 
+ */
+static void unix_time_to_dos(time_t unix_time, uint16_t *dos_time, uint16_t *dos_date) {
+    struct tm *tm_info = localtime(&unix_time);
+    
+    if (!tm_info) {
+        /* Fallback to dummy values if conversion fails */
+        *dos_time = 0;
+        *dos_date = 0;
+        return;
+    }
+    
+    /* MS-DOS time: bits 15-11=hour, 10-5=minute, 4-0=second/2 */
+    *dos_time = ((tm_info->tm_hour & 0x1F) << 11) |
+                ((tm_info->tm_min & 0x3F) << 5) |
+                ((tm_info->tm_sec / 2) & 0x1F);
+    
+    /* MS-DOS date: bits 15-9=year-1980, 8-5=month, 4-0=day */
+    int year = tm_info->tm_year + 1900;
+    if (year < 1980) year = 1980;  /* ZIP minimum year */
+    
+    *dos_date = (((year - 1980) & 0x7F) << 9) |
+                (((tm_info->tm_mon + 1) & 0x0F) << 5) |
+                (tm_info->tm_mday & 0x1F);
+}
+
 /* ----------------------- Metadata helper functions ------------------------- */
 
 /**
- * @brief Create ghost payload from metadata structure.
+ * @brief Create header payload from metadata structure.
  * @param meta Input metadata structure
- * @param payload Output buffer (must be at least TACO_GHOST_PAYLOAD_SIZE bytes)
+ * @param payload Output buffer (must be at least TACO_HEADER_PAYLOAD_SIZE bytes)
  */
-static void create_ghost_payload(const taco_meta_array_t *meta, unsigned char *payload) {
-    memset(payload, 0, TACO_GHOST_PAYLOAD_SIZE);
+static void create_header_payload(const taco_meta_array_t *meta, unsigned char *payload) {
+    memset(payload, 0, TACO_HEADER_PAYLOAD_SIZE);
     
     /* Count byte + 3 padding bytes for alignment */
     payload[0] = meta->count;
@@ -118,29 +151,29 @@ static void create_ghost_payload(const taco_meta_array_t *meta, unsigned char *p
 
     /* 7 pairs of (offset, length) - 112 bytes total */
     unsigned char *pairs_start = payload + 4;
-    for (size_t i = 0; i < TACO_GHOST_MAX_ENTRIES; i++) {
+    for (size_t i = 0; i < TACO_HEADER_MAX_ENTRIES; i++) {
         le64(pairs_start + i * 16 + 0, meta->entries[i].offset);
         le64(pairs_start + i * 16 + 8, meta->entries[i].length);
     }
 }
 
 /**
- * @brief Parse ghost payload into metadata structure.
- * @param payload Input buffer (must be exactly TACO_GHOST_PAYLOAD_SIZE bytes)
+ * @brief Parse header payload into metadata structure.
+ * @param payload Input buffer (must be exactly TACO_HEADER_PAYLOAD_SIZE bytes)
  * @param meta Output metadata structure
  */
-static void parse_ghost_payload(const unsigned char *payload, taco_meta_array_t *meta) {
+static void parse_header_payload(const unsigned char *payload, taco_meta_array_t *meta) {
     /* Extract count byte */
     meta->count = payload[0];
     
     /* Clamp count to valid range */
-    if (meta->count > TACO_GHOST_MAX_ENTRIES) {
-        meta->count = TACO_GHOST_MAX_ENTRIES;
+    if (meta->count > TACO_HEADER_MAX_ENTRIES) {
+        meta->count = TACO_HEADER_MAX_ENTRIES;
     }
 
     /* Parse 7 pairs of (offset, length) - 112 bytes total */
     const unsigned char *pairs_start = payload + 4;
-    for (size_t i = 0; i < TACO_GHOST_MAX_ENTRIES; i++) {
+    for (size_t i = 0; i < TACO_HEADER_MAX_ENTRIES; i++) {
         /* Read little-endian uint64_t values */
         uint64_t offset = 0, length = 0;
         
@@ -255,29 +288,36 @@ static int add_file_to_archive(zip_t *za, const char *src_path, const char *arc_
 }
 
 /**
- * @brief Add ghost entry to libzip archive.
+ * @brief Add header entry to libzip archive.
  * @param za libzip archive handle
- * @param meta Metadata structure for ghost payload
+ * @param meta Metadata structure for header payload
  * @return TACOZ_OK on success, error code on failure
  */
-static int add_ghost_to_archive(zip_t *za, const taco_meta_array_t *meta) {
-    /* Create ghost payload */
-    unsigned char *payload = malloc(TACO_GHOST_PAYLOAD_SIZE);
+static int add_header_to_archive(zip_t *za, const taco_meta_array_t *meta) {
+    /* Create header payload */
+    unsigned char *payload = malloc(TACO_HEADER_PAYLOAD_SIZE);
     if (!payload) return TACOZ_ERR_IO;
     
-    create_ghost_payload(meta, payload);
+    create_header_payload(meta, payload);
 
     /* Create source from buffer */
-    zip_source_t *source = zip_source_buffer(za, payload, TACO_GHOST_PAYLOAD_SIZE, 1); /* 1 = freep */
+    zip_source_t *source = zip_source_buffer(za, payload, TACO_HEADER_PAYLOAD_SIZE, 1); /* 1 = freep */
     if (!source) {
         free(payload);
         return TACOZ_ERR_LIBZIP;
     }
 
-    /* Add ghost entry to archive */
-    zip_int64_t index = zip_file_add(za, TACO_GHOST_NAME, source, ZIP_FL_OVERWRITE);
+    /* Add header entry to archive */
+    zip_int64_t index = zip_file_add(za, TACO_HEADER_NAME, source, ZIP_FL_OVERWRITE);
     if (index < 0) {
         zip_source_free(source);
+        return TACOZ_ERR_LIBZIP;
+    }
+
+    /* Set file attributes to identify as custom binary format */
+    zip_uint32_t external_attr = 0644 << 16;  /* Regular file permissions in high 16 bits */
+    if (zip_file_set_external_attributes(za, (zip_uint64_t)index, 
+                                        ZIP_FL_UNCHANGED, ZIP_OPSYS_UNIX, external_attr) < 0) {
         return TACOZ_ERR_LIBZIP;
     }
 
@@ -305,7 +345,7 @@ static int read_existing_cd_blob(FILE *fp, uint64_t *cd_offset, unsigned char **
     /* Get file size using fseeko for large files */
     if (fseeko(fp, 0, SEEK_END) != 0) return TACOZ_ERR_IO;
     off_t file_size = ftello(fp);
-    if (file_size < EOCD_MIN_SIZE) return TACOZ_ERR_INVALID_GHOST;
+    if (file_size < EOCD_MIN_SIZE) return TACOZ_ERR_INVALID_HEADER;
     
     /* Use larger search buffer for large files */
     size_t search_buffer_size = (file_size > LARGE_FILE_THRESHOLD) ? LARGE_SEARCH_BUFFER : SMALL_SEARCH_BUFFER;
@@ -375,7 +415,7 @@ static int read_existing_cd_blob(FILE *fp, uint64_t *cd_offset, unsigned char **
     }
     
     free(buffer);
-    return TACOZ_ERR_INVALID_GHOST;
+    return TACOZ_ERR_INVALID_HEADER;
 }
 
 /**
@@ -419,16 +459,22 @@ static int filename_exists_in_cd(const unsigned char *cd_data, uint32_t cd_size,
 }
 
 /**
- * @brief Write a local file header for STORE method
+ * @brief Write a local file header for STORE method with real timestamps
  * @param fp File pointer positioned where to write LFH
  * @param filename Archive filename
  * @param file_size Uncompressed file size
  * @param crc32 CRC32 checksum
+ * @param mtime File modification time (Unix timestamp)
  * @return TACOZ_OK on success, error code on failure
  */
-static int write_local_file_header(FILE *fp, const char *filename, uint64_t file_size, uint32_t crc32) {
+static int write_local_file_header(FILE *fp, const char *filename, uint64_t file_size, 
+                                  uint32_t crc32, time_t mtime) {
     unsigned char header[30];
     uint16_t filename_len = (uint16_t)strlen(filename);
+    
+    /* Convert Unix timestamp to DOS format */
+    uint16_t dos_time, dos_date;
+    unix_time_to_dos(mtime, &dos_time, &dos_date);
     
     /* Local file header signature */
     le32(header + 0, ZIP_LFH_SIGNATURE);
@@ -442,9 +488,9 @@ static int write_local_file_header(FILE *fp, const char *filename, uint64_t file
     /* Compression method (0 = STORE) */
     le16(header + 8, 0);
     
-    /* File last modification time & date (dummy values) */
-    le16(header + 10, 0);  /* time */
-    le16(header + 12, 0);  /* date */
+    /* File last modification time & date (real timestamps) */
+    le16(header + 10, dos_time);
+    le16(header + 12, dos_date);
     
     /* CRC32 */
     le32(header + 14, crc32);
@@ -507,23 +553,30 @@ static int copy_file_with_crc(FILE *src_fp, FILE *dest_fp, uint32_t *crc32_out, 
 }
 
 /**
- * @brief Write a Central Directory entry
+ * @brief Write a Central Directory entry with real timestamps and attributes
  * @param fp File pointer
  * @param filename Archive filename  
  * @param local_offset Offset of local file header
  * @param file_size File size
  * @param crc32 CRC32 checksum
+ * @param mtime File modification time (Unix timestamp)
+ * @param file_mode File mode/permissions from stat()
  * @return TACOZ_OK on success, error code on failure
  */
-static int write_cd_entry(FILE *fp, const char *filename, uint64_t local_offset, uint64_t file_size, uint32_t crc32) {
+static int write_cd_entry(FILE *fp, const char *filename, uint64_t local_offset, 
+                         uint64_t file_size, uint32_t crc32, time_t mtime, mode_t file_mode) {
     unsigned char header[46];
     uint16_t filename_len = (uint16_t)strlen(filename);
+    
+    /* Convert Unix timestamp to DOS format */
+    uint16_t dos_time, dos_date;
+    unix_time_to_dos(mtime, &dos_time, &dos_date);
     
     /* Central directory file header signature */
     le32(header + 0, ZIP_CDH_SIGNATURE);
     
-    /* Version made by */
-    le16(header + 4, ZIP_VERSION_NEEDED_ZIP64);
+    /* Version made by (Unix system) */
+    le16(header + 4, (ZIP_OPSYS_UNIX << 8) | ZIP_VERSION_NEEDED_ZIP64);
     
     /* Version needed to extract */
     le16(header + 6, ZIP_VERSION_NEEDED_ZIP64);
@@ -534,9 +587,9 @@ static int write_cd_entry(FILE *fp, const char *filename, uint64_t local_offset,
     /* Compression method (0 = STORE) */
     le16(header + 10, 0);
     
-    /* File last modification time & date (dummy values) */
-    le16(header + 12, 0);  /* time */
-    le16(header + 14, 0);  /* date */
+    /* File last modification time & date (real timestamps) */
+    le16(header + 12, dos_time);
+    le16(header + 14, dos_date);
     
     /* CRC32 */
     le32(header + 16, crc32);
@@ -565,8 +618,8 @@ static int write_cd_entry(FILE *fp, const char *filename, uint64_t local_offset,
     /* Internal file attributes */
     le16(header + 36, 0);
     
-    /* External file attributes */
-    le32(header + 38, 0);
+    /* External file attributes - preserve original file permissions */
+    le32(header + 38, (file_mode & 0xFFFF) << 16);  /* Unix permissions in high 16 bits */
     
     /* Local header offset */
     if (local_offset >= ZIP64_MARKER) {
@@ -626,12 +679,12 @@ static int write_eocd(FILE *fp, uint16_t total_entries, uint32_t cd_size, uint64
 }
 
 /**
- * @brief Calculate offset of ghost payload within Local File Header
+ * @brief Calculate offset of header payload within Local File Header
  * @param fp File pointer positioned at start of file
- * @param payload_offset Output: byte offset where ghost payload starts
+ * @param payload_offset Output: byte offset where header payload starts
  * @return TACOZ_OK on success, error code on failure
  */
-static int calculate_ghost_payload_offset(FILE *fp, uint64_t *payload_offset) {
+static int calculate_header_payload_offset(FILE *fp, uint64_t *payload_offset) {
     unsigned char header[30];
     
     /* Read Local File Header */
@@ -641,26 +694,26 @@ static int calculate_ghost_payload_offset(FILE *fp, uint64_t *payload_offset) {
     /* Verify LFH signature */
     if (header[0] != 0x50 || header[1] != 0x4b || 
         header[2] != 0x03 || header[3] != 0x04) {
-        return TACOZ_ERR_INVALID_GHOST;
+        return TACOZ_ERR_INVALID_HEADER;
     }
     
     /* Extract filename and extra field lengths */
     uint16_t filename_len = header[26] | (header[27] << 8);
     uint16_t extra_len = header[28] | (header[29] << 8);
     
-    /* Verify filename is "TACO_GHOST" */
-    if (filename_len != TACO_GHOST_NAME_LEN) {
-        return TACOZ_ERR_INVALID_GHOST;
+    /* Verify filename is "TACO_HEADER" */
+    if (filename_len != TACO_HEADER_NAME_LEN) {
+        return TACOZ_ERR_INVALID_HEADER;
     }
     
-    char filename[TACO_GHOST_NAME_LEN + 1];
-    if (fread(filename, 1, TACO_GHOST_NAME_LEN, fp) != TACO_GHOST_NAME_LEN) {
+    char filename[TACO_HEADER_NAME_LEN + 1];
+    if (fread(filename, 1, TACO_HEADER_NAME_LEN, fp) != TACO_HEADER_NAME_LEN) {
         return TACOZ_ERR_IO;
     }
-    filename[TACO_GHOST_NAME_LEN] = '\0';
+    filename[TACO_HEADER_NAME_LEN] = '\0';
     
-    if (strcmp(filename, TACO_GHOST_NAME) != 0) {
-        return TACOZ_ERR_INVALID_GHOST;
+    if (strcmp(filename, TACO_HEADER_NAME) != 0) {
+        return TACOZ_ERR_INVALID_HEADER;
     }
     
     /* Calculate payload offset: LFH (30) + filename + extra field */
@@ -670,16 +723,16 @@ static int calculate_ghost_payload_offset(FILE *fp, uint64_t *payload_offset) {
 }
 
 /**
- * @brief Update ghost payload directly in file
+ * @brief Update header payload directly in file
  * @param fp File pointer opened for r+b
  * @param offset Byte offset where payload starts
  * @param meta Metadata structure containing entries to write
  * @return TACOZ_OK on success, error code on failure
  */
-static int write_ghost_payload_direct(FILE *fp, uint64_t offset, const taco_meta_array_t *meta) {
+static int write_header_payload_direct(FILE *fp, uint64_t offset, const taco_meta_array_t *meta) {
     /* Create payload */
-    unsigned char payload[TACO_GHOST_PAYLOAD_SIZE];
-    create_ghost_payload(meta, payload);
+    unsigned char payload[TACO_HEADER_PAYLOAD_SIZE];
+    create_header_payload(meta, payload);
     
     /* Seek to payload position */
     if (fseek(fp, offset, SEEK_SET) != 0) {
@@ -687,7 +740,7 @@ static int write_ghost_payload_direct(FILE *fp, uint64_t offset, const taco_meta
     }
     
     /* Write payload */
-    if (fwrite(payload, 1, TACO_GHOST_PAYLOAD_SIZE, fp) != TACO_GHOST_PAYLOAD_SIZE) {
+    if (fwrite(payload, 1, TACO_HEADER_PAYLOAD_SIZE, fp) != TACO_HEADER_PAYLOAD_SIZE) {
         return TACOZ_ERR_IO;
     }
     
@@ -700,26 +753,26 @@ static int write_ghost_payload_direct(FILE *fp, uint64_t offset, const taco_meta
 }
 
 /**
- * @brief Read ghost payload directly from file
+ * @brief Read header payload directly from file
  * @param fp File pointer opened for reading
  * @param offset Byte offset where payload starts
  * @param meta Output metadata structure
  * @return TACOZ_OK on success, error code on failure
  */
-static int read_ghost_payload_direct(FILE *fp, uint64_t offset, taco_meta_array_t *meta) {
+static int read_header_payload_direct(FILE *fp, uint64_t offset, taco_meta_array_t *meta) {
     /* Seek to payload position */
     if (fseek(fp, offset, SEEK_SET) != 0) {
         return TACOZ_ERR_IO;
     }
     
     /* Read payload */
-    unsigned char payload[TACO_GHOST_PAYLOAD_SIZE];
-    if (fread(payload, 1, TACO_GHOST_PAYLOAD_SIZE, fp) != TACO_GHOST_PAYLOAD_SIZE) {
+    unsigned char payload[TACO_HEADER_PAYLOAD_SIZE];
+    if (fread(payload, 1, TACO_HEADER_PAYLOAD_SIZE, fp) != TACO_HEADER_PAYLOAD_SIZE) {
         return TACOZ_ERR_IO;
     }
     
     /* Parse payload into structure */
-    parse_ghost_payload(payload, meta);
+    parse_header_payload(payload, meta);
     
     return TACOZ_OK;
 }
@@ -750,16 +803,16 @@ int tacozip_create(const char *zip_path,
         return TACOZ_ERR_IO;
     }
 
-    TACOZIP_DEBUG(TACOZIP_LOG_GHOST, "Ghost metadata: %u valid entries", meta->count);
+    TACOZIP_DEBUG(TACOZIP_LOG_HEADER, "Header metadata: %u valid entries", meta->count);
 
-    /* Add ghost entry first (so it appears at the beginning physically) */
-    int rc = add_ghost_to_archive(za, meta);
+    /* Add header entry first (so it appears at the beginning physically) */
+    int rc = add_header_to_archive(za, meta);
     if (rc != TACOZ_OK) {
-        TACOZIP_DEBUG(TACOZIP_LOG_ERROR, "Failed to add ghost entry: %d", rc);
+        TACOZIP_DEBUG(TACOZIP_LOG_ERROR, "Failed to add header entry: %d", rc);
         zip_close(za);
         return rc;
     }
-    TACOZIP_DEBUG(TACOZIP_LOG_GHOST, "Ghost entry added successfully");
+    TACOZIP_DEBUG(TACOZIP_LOG_HEADER, "Header entry added successfully");
 
     /* Add each regular file */
     for (size_t i = 0; i < num_files; i++) {
@@ -788,9 +841,9 @@ int tacozip_create(const char *zip_path,
     return TACOZ_OK;
 }
 
-int tacozip_update_ghost(const char *zip_path,
+int tacozip_update_header(const char *zip_path,
                         const taco_meta_array_t *meta) {
-    TACOZIP_DEBUG(TACOZIP_LOG_GHOST, "Updating ghost metadata in '%s'", zip_path);
+    TACOZIP_DEBUG(TACOZIP_LOG_HEADER, "Updating header metadata in '%s'", zip_path);
     
     if (!zip_path || !meta)
         return TACOZ_ERR_PARAM;
@@ -798,36 +851,36 @@ int tacozip_update_ghost(const char *zip_path,
     /* Open file for reading and writing */
     FILE *fp = fopen(zip_path, "r+b");
     if (!fp) {
-        TACOZIP_DEBUG(TACOZIP_LOG_ERROR, "Failed to open file for ghost update: %s", strerror(errno));
+        TACOZIP_DEBUG(TACOZIP_LOG_ERROR, "Failed to open file for header update: %s", strerror(errno));
         return TACOZ_ERR_IO;
     }
 
-    /* Calculate ghost payload offset */
+    /* Calculate header payload offset */
     uint64_t payload_offset;
-    int rc = calculate_ghost_payload_offset(fp, &payload_offset);
+    int rc = calculate_header_payload_offset(fp, &payload_offset);
     if (rc != TACOZ_OK) {
-        TACOZIP_DEBUG(TACOZIP_LOG_ERROR, "Failed to calculate ghost payload offset: %d", rc);
+        TACOZIP_DEBUG(TACOZIP_LOG_ERROR, "Failed to calculate header payload offset: %d", rc);
         fclose(fp);
         return rc;
     }
-    TACOZIP_DEBUG(TACOZIP_LOG_GHOST, "Ghost payload offset: %llu", (unsigned long long)payload_offset);
+    TACOZIP_DEBUG(TACOZIP_LOG_HEADER, "Header payload offset: %llu", (unsigned long long)payload_offset);
 
-    /* Update ghost payload directly */
-    rc = write_ghost_payload_direct(fp, payload_offset, meta);
+    /* Update header payload directly */
+    rc = write_header_payload_direct(fp, payload_offset, meta);
     if (rc != TACOZ_OK) {
-        TACOZIP_DEBUG(TACOZIP_LOG_ERROR, "Failed to write ghost payload: %d", rc);
+        TACOZIP_DEBUG(TACOZIP_LOG_ERROR, "Failed to write header payload: %d", rc);
         fclose(fp);
         return rc;
     }
 
     fclose(fp);
-    TACOZIP_DEBUG(TACOZIP_LOG_GHOST, "Ghost metadata updated successfully");
+    TACOZIP_DEBUG(TACOZIP_LOG_HEADER, "Header metadata updated successfully");
     return TACOZ_OK;
 }
 
-int tacozip_read_ghost(const char *zip_path,
+int tacozip_read_header(const char *zip_path,
                       taco_meta_array_t *meta_out) {
-    TACOZIP_DEBUG(TACOZIP_LOG_GHOST, "Reading ghost metadata from '%s'", zip_path);
+    TACOZIP_DEBUG(TACOZIP_LOG_HEADER, "Reading header metadata from '%s'", zip_path);
     
     if (!zip_path || !meta_out) {
         return TACOZ_ERR_PARAM;
@@ -839,30 +892,30 @@ int tacozip_read_ghost(const char *zip_path,
     /* Open file for reading */
     FILE *fp = fopen(zip_path, "rb");
     if (!fp) {
-        TACOZIP_DEBUG(TACOZIP_LOG_ERROR, "Failed to open file for ghost read: %s", strerror(errno));
+        TACOZIP_DEBUG(TACOZIP_LOG_ERROR, "Failed to open file for header read: %s", strerror(errno));
         return TACOZ_ERR_IO;
     }
 
-    /* Calculate ghost payload offset */
+    /* Calculate header payload offset */
     uint64_t payload_offset;
-    int rc = calculate_ghost_payload_offset(fp, &payload_offset);
+    int rc = calculate_header_payload_offset(fp, &payload_offset);
     if (rc != TACOZ_OK) {
-        TACOZIP_DEBUG(TACOZIP_LOG_ERROR, "Failed to calculate ghost payload offset: %d", rc);
+        TACOZIP_DEBUG(TACOZIP_LOG_ERROR, "Failed to calculate header payload offset: %d", rc);
         fclose(fp);
         return rc;
     }
-    TACOZIP_DEBUG(TACOZIP_LOG_GHOST, "Ghost payload offset: %llu", (unsigned long long)payload_offset);
+    TACOZIP_DEBUG(TACOZIP_LOG_HEADER, "Header payload offset: %llu", (unsigned long long)payload_offset);
 
-    /* Read ghost payload directly */
-    rc = read_ghost_payload_direct(fp, payload_offset, meta_out);
+    /* Read header payload directly */
+    rc = read_header_payload_direct(fp, payload_offset, meta_out);
     if (rc != TACOZ_OK) {
-        TACOZIP_DEBUG(TACOZIP_LOG_ERROR, "Failed to read ghost payload: %d", rc);
+        TACOZIP_DEBUG(TACOZIP_LOG_ERROR, "Failed to read header payload: %d", rc);
         fclose(fp);
         return rc;
     }
 
     fclose(fp);
-    TACOZIP_DEBUG(TACOZIP_LOG_GHOST, "Ghost metadata read successfully: %u valid entries", meta_out->count);
+    TACOZIP_DEBUG(TACOZIP_LOG_HEADER, "Header metadata read successfully: %u valid entries", meta_out->count);
     return TACOZ_OK;
 }
 
@@ -881,8 +934,8 @@ int tacozip_append_files(const char *zip_path,
             return TACOZ_ERR_PARAM;
         }
         
-        /* Protect against adding duplicate ghost entry */
-        if (strcmp(entries[i].arc_name, TACO_GHOST_NAME) == 0) {
+        /* Protect against adding duplicate header entry */
+        if (strcmp(entries[i].arc_name, TACO_HEADER_NAME) == 0) {
             return TACOZ_ERR_PARAM;
         }
         
@@ -950,6 +1003,8 @@ int tacozip_append_files(const char *zip_path,
         uint64_t local_offset;
         uint64_t file_size;
         uint32_t crc32;
+        time_t mtime;
+        mode_t file_mode;
     } new_file_info_t;
     
     new_file_info_t *new_files = malloc(num_entries * sizeof(new_file_info_t));
@@ -975,7 +1030,7 @@ int tacozip_append_files(const char *zip_path,
             return TACOZ_ERR_IO;
         }
 
-        /* Get file size */
+        /* Get file stats - size, mtime, and permissions */
         struct stat st;
         if (stat(entries[i].src_path, &st) != 0) {
             fclose(src_fp);
@@ -984,9 +1039,13 @@ int tacozip_append_files(const char *zip_path,
             fclose(fp);
             return TACOZ_ERR_IO;
         }
+        
+        /* Store file metadata */
+        new_files[i].mtime = st.st_mtime;
+        new_files[i].file_mode = st.st_mode;
 
-        /* Write local file header with temporary CRC=0 */
-        rc = write_local_file_header(fp, entries[i].arc_name, st.st_size, 0);
+        /* Write local file header with temporary CRC=0 but real timestamp */
+        rc = write_local_file_header(fp, entries[i].arc_name, st.st_size, 0, st.st_mtime);
         if (rc != TACOZ_OK) {
             fclose(src_fp);
             free(new_files);
@@ -1051,14 +1110,16 @@ int tacozip_append_files(const char *zip_path,
         return TACOZ_ERR_IO;
     }
     
-    /* Second: write new CD entries */
+    /* Second: write new CD entries with proper timestamps and attributes */
     uint32_t new_entries_size = 0;
     for (size_t i = 0; i < num_entries; i++) {
         off_t start_pos = ftello(fp);
         rc = write_cd_entry(fp, entries[i].arc_name,
                            new_files[i].local_offset,
                            new_files[i].file_size,
-                           new_files[i].crc32);
+                           new_files[i].crc32,
+                           new_files[i].mtime,
+                           new_files[i].file_mode);
         if (rc != TACOZ_OK) {
             free(new_files);
             free(existing_cd_data);
@@ -1124,10 +1185,10 @@ int tacozip_replace_file(const char *zip_path,
         return TACOZ_ERR_NOT_FOUND;
     }
 
-    /* Protect against replacing the ghost entry */
-    if (strcmp(file_name, TACO_GHOST_NAME) == 0) {
+    /* Protect against replacing the header entry */
+    if (strcmp(file_name, TACO_HEADER_NAME) == 0) {
         zip_close(za);
-        return TACOZ_ERR_PARAM;  /* Cannot replace ghost with this function */
+        return TACOZ_ERR_PARAM;  /* Cannot replace header with this function */
     }
 
     /* Create source from new file */

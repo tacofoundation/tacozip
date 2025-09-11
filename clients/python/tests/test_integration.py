@@ -1,4 +1,3 @@
-"""Test package integration."""
 import pytest
 import tacozip
 from tacozip import config, exceptions
@@ -12,23 +11,25 @@ class TestIntegration:
         # Test constants
         assert hasattr(tacozip, 'TACOZ_OK')
         assert hasattr(tacozip, 'TACOZ_ERR_IO')
-        assert hasattr(tacozip, 'TACO_GHOST_MAX_ENTRIES')
+        assert hasattr(tacozip, 'TACOZ_ERR_INVALID_HEADER')
+        assert hasattr(tacozip, 'TACOZ_ERR_EXISTS')
+        assert hasattr(tacozip, 'TACO_HEADER_MAX_ENTRIES')
         
         # Test exception
         assert hasattr(tacozip, 'TacozipError')
         
         # Test functions
         assert hasattr(tacozip, 'create')
-        assert hasattr(tacozip, 'read_ghost')
-        assert hasattr(tacozip, 'update_ghost')
-        assert hasattr(tacozip, 'create_multi')
-        assert hasattr(tacozip, 'read_ghost_multi')
-        assert hasattr(tacozip, 'update_ghost_multi')
+        assert hasattr(tacozip, 'read_header')
+        assert hasattr(tacozip, 'update_header')
+        assert hasattr(tacozip, 'append_files')
         assert hasattr(tacozip, 'replace_file')
+        assert hasattr(tacozip, 'get_library_version')
         assert hasattr(tacozip, 'self_check')
         
         # Test metadata
         assert hasattr(tacozip, '__version__')
+        assert hasattr(tacozip, '__tacozip_version__')
         assert hasattr(tacozip, '__author__')
         assert hasattr(tacozip, '__author_email__')
         assert hasattr(tacozip, '__description__')
@@ -39,10 +40,11 @@ class TestIntegration:
         """Test that package constants match config constants."""
         assert tacozip.TACOZ_OK == config.TACOZ_OK
         assert tacozip.TACOZ_ERR_IO == config.TACOZ_ERR_IO
-        assert tacozip.TACOZ_ERR_INVALID_GHOST == config.TACOZ_ERR_INVALID_GHOST
+        assert tacozip.TACOZ_ERR_INVALID_HEADER == config.TACOZ_ERR_INVALID_HEADER
         assert tacozip.TACOZ_ERR_PARAM == config.TACOZ_ERR_PARAM
         assert tacozip.TACOZ_ERR_NOT_FOUND == config.TACOZ_ERR_NOT_FOUND
-        assert tacozip.TACO_GHOST_MAX_ENTRIES == config.TACO_GHOST_MAX_ENTRIES
+        assert tacozip.TACOZ_ERR_EXISTS == config.TACOZ_ERR_EXISTS
+        assert tacozip.TACO_HEADER_MAX_ENTRIES == config.TACO_HEADER_MAX_ENTRIES
     
     def test_exception_accessibility(self):
         """Test that exceptions are accessible from main package."""
@@ -57,12 +59,24 @@ class TestIntegration:
     def test_all_exports(self):
         """Test that __all__ contains expected exports."""
         expected_exports = {
-            '__version__', '__author__', '__author_email__', '__description__',
-            '__url__', '__license__', 'self_check', 'TACOZ_OK', 'TACOZ_ERR_IO',
-            'TACOZ_ERR_LIBZIP', 'TACOZ_ERR_INVALID_GHOST', 'TACOZ_ERR_PARAM',
-            'TACOZ_ERR_NOT_FOUND', 'TACO_GHOST_MAX_ENTRIES', 'TacozipError',
-            'create', 'read_ghost', 'update_ghost', 'create_multi',
-            'read_ghost_multi', 'update_ghost_multi', 'replace_file'
+            # Version and metadata
+            '__version__', '__tacozip_version__', '__author__', '__author_email__', 
+            '__description__', '__url__', '__license__',
+            
+            # Loader
+            'self_check',
+            
+            # Constants
+            'TACOZ_OK', 'TACOZ_ERR_IO', 'TACOZ_ERR_LIBZIP', 'TACOZ_ERR_INVALID_HEADER',
+            'TACOZ_ERR_PARAM', 'TACOZ_ERR_NOT_FOUND', 'TACOZ_ERR_EXISTS',
+            'TACO_HEADER_MAX_ENTRIES',
+            
+            # Exceptions
+            'TacozipError',
+            
+            # Core API
+            'create', 'update_header', 'append_files', 'replace_file', 
+            'read_header', 'get_library_version'
         }
         
         actual_exports = set(tacozip.__all__)
@@ -73,6 +87,9 @@ class TestIntegration:
         assert isinstance(tacozip.__version__, str)
         assert len(tacozip.__version__) > 0
         
+        assert isinstance(tacozip.__tacozip_version__, str)
+        assert len(tacozip.__tacozip_version__) > 0
+        
         assert isinstance(tacozip.__author__, str)
         assert "Cesar Aybar" in tacozip.__author__
         
@@ -81,6 +98,7 @@ class TestIntegration:
         
         assert isinstance(tacozip.__description__, str)
         assert "TACO" in tacozip.__description__
+        assert "Header" in tacozip.__description__  # Should mention Header, not Ghost
         
         assert isinstance(tacozip.__url__, str)
         assert "github.com" in tacozip.__url__
@@ -91,10 +109,42 @@ class TestIntegration:
     def test_functions_callable(self):
         """Test that all exported functions are callable."""
         functions = [
-            'create', 'read_ghost', 'update_ghost', 'create_multi',
-            'read_ghost_multi', 'update_ghost_multi', 'replace_file', 'self_check'
+            'create', 'read_header', 'update_header', 'append_files',
+            'replace_file', 'get_library_version', 'self_check'
         ]
         
         for func_name in functions:
             func = getattr(tacozip, func_name)
             assert callable(func), f"{func_name} should be callable"
+    
+    def test_error_code_completeness(self):
+        """Test that all error codes are accessible from package."""
+        error_codes = [
+            'TACOZ_OK', 'TACOZ_ERR_IO', 'TACOZ_ERR_LIBZIP', 
+            'TACOZ_ERR_INVALID_HEADER', 'TACOZ_ERR_PARAM', 
+            'TACOZ_ERR_NOT_FOUND', 'TACOZ_ERR_EXISTS'
+        ]
+        
+        for error_code in error_codes:
+            assert hasattr(tacozip, error_code), f"{error_code} should be accessible"
+            value = getattr(tacozip, error_code)
+            assert isinstance(value, int), f"{error_code} should be an integer"
+    
+    def test_api_consistency(self):
+        """Test that API functions have consistent patterns."""
+        # Test that header functions exist (not ghost functions)
+        assert hasattr(tacozip, 'read_header')
+        assert hasattr(tacozip, 'update_header')
+        
+        # Test that old ghost functions do NOT exist
+        assert not hasattr(tacozip, 'read_ghost')
+        assert not hasattr(tacozip, 'update_ghost')
+        
+        # Test that non-existent multi functions do NOT exist
+        assert not hasattr(tacozip, 'create_multi')
+        assert not hasattr(tacozip, 'read_header_multi')
+        assert not hasattr(tacozip, 'update_header_multi')
+        
+        # Test that actual functions exist
+        assert hasattr(tacozip, 'append_files')
+        assert hasattr(tacozip, 'get_library_version')

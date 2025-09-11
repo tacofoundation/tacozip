@@ -1,4 +1,3 @@
-"""Native library loader for tacozip."""
 import sys
 import ctypes
 from pathlib import Path
@@ -58,10 +57,10 @@ def self_check():
     required_functions = [
         'tacozip_get_version',
         'tacozip_create',
-        'tacozip_update_ghost',
+        'tacozip_update_header',
         'tacozip_append_files',
         'tacozip_replace_file',
-        'tacozip_read_ghost',
+        'tacozip_read_header',
     ]
     
     missing_functions = []

@@ -1,19 +1,15 @@
-# tacozip 🌮
+# tacozip
 
-| Benchmark | Builds | Python Test | 
-|:-:|:-:| :-:|
-|[![Open In Colab](https://colab.research.google.com/assets/colab-badge.svg)](https://colab.research.google.com/drive/1MVt0uyi8Dmu_hIpNwqj1T4rw0ifFqBG-?usp=sharing)|  [![PyPI - Wheel](https://img.shields.io/pypi/wheel/tacozip)](https://pypi.org/project/tacozip/#files) | [![tacozip-python](https://github.com/tacofoundation/tacozip/actions/workflows/test_py.yml/badge.svg)](https://github.com/tacofoundation/tacozip/actions/workflows/test_py.yml) |
+[![PyPI](https://img.shields.io/pypi/v/tacozip.svg)](https://pypi.python.org/pypi/tacozip)
+[![PyPI - Wheel](https://img.shields.io/pypi/wheel/tacozip)](https://pypi.org/project/tacozip/#files)
+[![Tests](https://github.com/tacofoundation/tacozip/actions/workflows/test_py.yml/badge.svg)](https://github.com/tacofoundation/tacozip/actions/workflows/test_py.yml)
+[![codecov](https://codecov.io/gh/tacofoundation/tacozip/graph/badge.svg?token=cFqgSRDqmC)](https://codecov.io/gh/tacofoundation/tacozip)
+[![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](https://opensource.org/licenses/MIT)
+[![Code style: black](https://img.shields.io/badge/code%20style-black-000000.svg)](https://github.com/psf/black)
+[![Twitter](https://img.shields.io/twitter/follow/TheDataTaco?style=social)](https://twitter.com/dmlmont)
+[![BlueSky](https://img.shields.io/badge/bluesky-tacofoundation-1185fe?labelColor=000000&logo=bluesky)](https://bsky.app/profile/tacofoundation.bsky.social)
 
-
-**tacozip** is a specialized ZIP64 archive writer designed for efficient packaging of large datasets with embedded metadata. By storing metadata pointers directly in the archive header, it enables direct data access without requiring a separate Central File Directory (CFD) scan. Perfect for data pipelines that need fast, uncompressed storage with multiple index references.
-
-## ✨ Why tacozip?
-
-- 🚀 **Zero compression overhead** — STORE-only for maximum I/O throughput.
-- 📊 **Multi-metadata support** — Store up to 7 external index pointers in a single archive.
-- 📦 **No size limits** — Always ZIP64, handles files larger than 4GB.
-- ⚡ **High performance** — Native C library with Python bindings (R and Julia coming soon!).
-- 🌍 **Cross-platform** — Works on Linux, macOS, and Windows.
+ZIP64 archive writer with embedded TACO Header for storing metadata offsets and lengths. Useful for cases where scanning the Central Directory is too slow.
 
 ## 🚀 Quick Start
 
@@ -23,23 +19,12 @@
 pip install tacozip
 ```
 
-## 🏗️ Architecture
-
-tacozip uses a special "TACO Ghost" entry at the beginning of each archive to store metadata pointers:
-
-<img width="558" height="690" alt="TACOv3-Page-15 drawio" src="https://github.com/user-attachments/assets/b9d6d6e5-da6a-41aa-87d9-1f4bdb05ace7" />
-
-The ghost entry contains:
-- **Count byte** — Number of valid metadata entries (0-7)
-- **7 offset/length pairs** — Pointers to external metadata files
-- **116-byte payload** — Fixed size for consistent parsing
-
 ## 🛠️ Development
 
 ### Requirements
 - CMake 3.15+
 - C compiler (GCC, Clang, MSVC)
-- Python 3.9+
+- Python 3.8+
 
 ### Build from Source
 
@@ -67,13 +52,6 @@ python -m pytest tests/
 python -c "import tacozip; tacozip.self_check()"
 ```
 
-## 🎯 Use Cases
-
-- **Data lakes** — Package multiple files with shared metadata
-- **ML datasets** — Store training data with feature indices
-- **Analytics pipelines** — Bundle data with multiple index files
-- **Archive systems** — High-throughput storage without compression overhead
-
 ## 🤝 Contributing
 
 We welcome contributions! Please see our [Contributing Guide](CONTRIBUTING.md) for details.
@@ -81,6 +59,12 @@ We welcome contributions! Please see our [Contributing Guide](CONTRIBUTING.md) f
 ## 📄 License
 
 MIT License - see [LICENSE](LICENSE) file for details.
+
+
+## 🔍 Benchmark
+
+[![Open In Colab](https://colab.research.google.com/assets/colab-badge.svg)](https://colab.research.google.com/drive/1MVt0uyi8Dmu_hIpNwqj1T4rw0ifFqBG-?usp=sharing)| 
+
 
 ---
 

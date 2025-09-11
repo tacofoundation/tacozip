@@ -6,7 +6,6 @@
 [![codecov](https://codecov.io/gh/tacofoundation/tacozip/graph/badge.svg?token=cFqgSRDqmC)](https://codecov.io/gh/tacofoundation/tacozip)
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](https://opensource.org/licenses/MIT)
 [![Code style: black](https://img.shields.io/badge/code%20style-black-000000.svg)](https://github.com/psf/black)
-[![Twitter](https://img.shields.io/twitter/follow/TheDataTaco?style=social)](https://twitter.com/dmlmont)
 [![BlueSky](https://img.shields.io/badge/bluesky-tacofoundation-1185fe?labelColor=000000&logo=bluesky)](https://bsky.app/profile/tacofoundation.bsky.social)
 
 ZIP64 archive writer with embedded TACO Header for storing metadata offsets and lengths. Useful for cases where scanning the Central Directory is too slow.

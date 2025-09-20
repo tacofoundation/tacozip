@@ -722,6 +722,84 @@ static int calculate_header_payload_offset(FILE *fp, uint64_t *payload_offset) {
     return TACOZ_OK;
 }
 
+
+/**
+ * @brief Find and update CRC32 in Central Directory entry for TACO_HEADER
+ * @param fp File pointer opened for r+b
+ * @param new_crc32 New CRC32 value to write
+ * @return TACOZ_OK on success, error code on failure
+ */
+static int update_header_cd_crc32(FILE *fp, uint32_t new_crc32) {
+    /* Read existing Central Directory blob */
+    uint64_t cd_offset;
+    unsigned char *cd_data;
+    uint32_t cd_size;
+    uint16_t total_entries;
+    
+    int rc = read_existing_cd_blob(fp, &cd_offset, &cd_data, &cd_size, &total_entries);
+    if (rc != TACOZ_OK) {
+        return rc;
+    }
+    
+    /* Search for TACO_HEADER entry in CD */
+    uint32_t offset = 0;
+    int found = 0;
+    uint32_t header_cd_offset = 0;
+    
+    while (offset < cd_size && !found) {
+        if (offset + 46 > cd_size) break;  /* Not enough space for CD header */
+        
+        /* Check CD signature */
+        if (cd_data[offset] != 0x50 || cd_data[offset+1] != 0x4b ||
+            cd_data[offset+2] != 0x01 || cd_data[offset+3] != 0x02) {
+            break;  /* Invalid CD entry */
+        }
+        
+        /* Extract lengths */
+        uint16_t filename_len = cd_data[offset+28] | (cd_data[offset+29] << 8);
+        uint16_t extra_len = cd_data[offset+30] | (cd_data[offset+31] << 8);
+        uint16_t comment_len = cd_data[offset+32] | (cd_data[offset+33] << 8);
+        
+        /* Check if we have enough space */
+        if (offset + 46 + filename_len > cd_size) break;
+        
+        /* Compare filename with TACO_HEADER */
+        if (filename_len == TACO_HEADER_NAME_LEN && 
+            memcmp(cd_data + offset + 46, TACO_HEADER_NAME, TACO_HEADER_NAME_LEN) == 0) {
+            header_cd_offset = offset;
+            found = 1;
+            break;
+        }
+        
+        /* Move to next entry */
+        offset += 46 + filename_len + extra_len + comment_len;
+    }
+    
+    if (!found) {
+        free(cd_data);
+        return TACOZ_ERR_NOT_FOUND;
+    }
+    
+    /* Update CRC32 in the CD entry (offset 16 within CD entry) */
+    uint64_t file_crc_offset = cd_offset + header_cd_offset + 16;
+    
+    if (fseeko(fp, file_crc_offset, SEEK_SET) != 0) {
+        free(cd_data);
+        return TACOZ_ERR_IO;
+    }
+    
+    unsigned char crc_bytes[4];
+    le32(crc_bytes, new_crc32);
+    if (fwrite(crc_bytes, 1, 4, fp) != 4) {
+        free(cd_data);
+        return TACOZ_ERR_IO;
+    }
+    
+    free(cd_data);
+    return TACOZ_OK;
+}
+
+
 /**
  * @brief Update header payload directly in file
  * @param fp File pointer opened for r+b
@@ -744,7 +822,29 @@ static int write_header_payload_direct(FILE *fp, uint64_t offset, const taco_met
         return TACOZ_ERR_IO;
     }
     
-    /* Flush to ensure write is complete */
+    /* Calculate CRC32 of the new payload */
+    uLong new_crc = crc32(0L, Z_NULL, 0);
+    new_crc = crc32(new_crc, payload, TACO_HEADER_PAYLOAD_SIZE);
+    uint32_t final_crc = (uint32_t)new_crc;
+    
+    /* Update Local File Header CRC32 (always at offset 14) */
+    if (fseek(fp, 14, SEEK_SET) != 0) {
+        return TACOZ_ERR_IO;
+    }
+    
+    unsigned char crc_bytes[4];
+    le32(crc_bytes, final_crc);
+    if (fwrite(crc_bytes, 1, 4, fp) != 4) {
+        return TACOZ_ERR_IO;
+    }
+    
+    /* Update Central Directory entry CRC32 */
+    int rc = update_header_cd_crc32(fp, final_crc);
+    if (rc != TACOZ_OK) {
+        return rc;
+    }
+    
+    /* Flush to ensure all writes are complete */
     if (fflush(fp) != 0) {
         return TACOZ_ERR_IO;
     }

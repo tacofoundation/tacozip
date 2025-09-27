@@ -6,6 +6,7 @@ from pathlib import Path
 import tempfile
 import shutil
 
+
 @pytest.fixture
 def mock_library():
     """Fixture providing a mock C library."""
@@ -18,6 +19,7 @@ def mock_library():
     mock_lib.tacozip_read_header.return_value = 0
     mock_lib.tacozip_append_files.return_value = 0
     mock_lib.tacozip_replace_file.return_value = 0
+    mock_lib.tacozip_trim_from.return_value = 0
     
     # Add all required function attributes that match our C API
     required_functions = [
@@ -26,7 +28,8 @@ def mock_library():
         'tacozip_update_header',
         'tacozip_read_header',
         'tacozip_append_files',
-        'tacozip_replace_file'
+        'tacozip_replace_file',
+        'tacozip_trim_from'
     ]
     
     for func_name in required_functions:
@@ -38,12 +41,14 @@ def mock_library():
     
     return mock_lib
 
+
 @pytest.fixture
 def temp_dir():
     """Fixture providing a temporary directory."""
     temp_dir = tempfile.mkdtemp()
     yield Path(temp_dir)
     shutil.rmtree(temp_dir, ignore_errors=True)
+
 
 @pytest.fixture
 def sample_files(temp_dir):
@@ -54,6 +59,7 @@ def sample_files(temp_dir):
         file_path.write_text(f"Sample content {i}")
         files.append(str(file_path))
     return files
+
 
 @pytest.fixture(autouse=True)
 def mock_native_library():
@@ -68,7 +74,8 @@ def mock_native_library():
             'tacozip_update_header',
             'tacozip_read_header', 
             'tacozip_append_files',
-            'tacozip_replace_file'
+            'tacozip_replace_file',
+            'tacozip_trim_from'
         ]
         
         for func_name in required_functions:
@@ -80,7 +87,7 @@ def mock_native_library():
         
         mock_load.return_value = mock_lib
         yield mock_lib
-        
+
 
 if __name__ == "__main__":
     import subprocess

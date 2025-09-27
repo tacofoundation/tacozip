@@ -321,6 +321,37 @@ int tacozip_replace_file(const char *zip_path,
                         const char *file_name,
                         const char *new_src_path);
 
+/**
+ * @brief Trim archive from a specific point to the end (METADATA/ or COLLECTION.json only)
+ *
+ * Removes the specified target and everything that comes after it in the physical 
+ * archive layout. This is an efficient operation that truncates the file instead 
+ * of moving data around.
+ * 
+ * SAFETY RESTRICTIONS:
+ * - Only accepts "METADATA/" or "COLLECTION.json" as targets
+ * - Only works if no files exist after the target in the physical layout
+ * - Designed for TACO's specific structure: DATA/ → METADATA/ → COLLECTION.json
+ * 
+ * TYPICAL USAGE:
+ * - Remove old metadata: tacozip_trim_from("archive.taco", "METADATA/")
+ * - Remove collection file: tacozip_trim_from("archive.taco", "COLLECTION.json")
+ * - Then append new files with tacozip_append_files()
+ *
+ * @param zip_path Path to an existing TACO archive
+ * @param target Either "METADATA/" (removes entire directory) or "COLLECTION.json"
+ * @return TACOZ_OK on success; negative error code otherwise.
+ *         TACOZ_ERR_PARAM if target is not whitelisted or operation unsafe
+ *         TACOZ_ERR_NOT_FOUND if target doesn't exist in archive
+ *
+ * @note This operation truncates the physical file, making it very fast
+ * @note For "METADATA/", removes ALL files/folders that start with "METADATA/"
+ * @note Operation fails if any non-target files exist after the trim point
+ * @note After trimming, you can use tacozip_append_files() to rebuild that section
+ */
+TACOZIP_EXPORT
+int tacozip_trim_from(const char *zip_path, const char *target);
+
 /* ========================================================================== */
 /*                              DEBUG SYSTEM                                 */
 /* ========================================================================== */
@@ -341,40 +372,6 @@ int tacozip_replace_file(const char *zip_path,
 #else
 #define TACOZIP_DEBUG(...) do { } while(0)
 #endif
-
-
-/* ========================================================================== */
-/*                             Implementation Notes                           */
-/* ========================================================================== */
-/*
- * ## Automatic Count Detection
- * The library counts valid entries by scanning from index 0 until it finds
- * the first (offset=0, length=0) pair.
- * Example: [1000, 2000, 0, 0, 0, 0, 0] + [500, 750, 0, 0, 0, 0, 0] = count=2
- *
- * ## Header Storage Format
- * - Header stores exactly 7 pairs regardless of how many are valid
- * - Unused pairs are stored as (0, 0) for deterministic output
- * - Count byte allows efficient reading without scanning
- *
- * ## Validation
- * - Arrays must be exactly 7 elements for safety
- * - Functions will return TACOZ_ERR_PARAM if array_size != 7
- * - Count is automatically computed, not passed by user
- *
- * ## libzip Backend
- * - All ZIP operations use libzip for robustness
- * - Always forces ZIP64 format regardless of file sizes
- * - Always uses STORE method (no compression)
- * - Header entry is included in central directory as normal entry
- *
- * ## File Operations
- * - tacozip_replace_file() preserves the TACO Header and all metadata
- * - tacozip_append_files() preserves the TACO Header and all metadata
- * - All file operations maintain STORE compression method for consistency
- * - File name matching uses exact string comparison
- * - tacozip_append_files() supports both single and batch operations efficiently
- */
 
 #ifdef __cplusplus
 } /* extern "C" */

@@ -5,7 +5,7 @@ from .loader import self_check
 
 # Import simplified API from bindings
 from .bindings import (
-    create, update_header, append_files, replace_file, get_library_version, read_header
+    create, update_header, append_files, replace_file, get_library_version, read_header, trim_from
 )
 
 # Package metadata
@@ -33,7 +33,7 @@ __all__ = [
     # Constants
     "TACOZ_OK",
     "TACOZ_ERR_IO",
-    "TACOZ_ERR_LIBZIP",
+    "TACOZ_ERR_LIBZIP", 
     "TACOZ_ERR_INVALID_HEADER",
     "TACOZ_ERR_PARAM",
     "TACOZ_ERR_NOT_FOUND",
@@ -45,9 +45,10 @@ __all__ = [
     
     # Core API
     "create",
-    "update_header",
+    "update_header", 
     "append_files",
     "replace_file",
+    "trim_from",
     "read_header",
     "get_library_version"
 ]

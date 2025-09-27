@@ -187,6 +187,27 @@ static void parse_header_payload(const unsigned char *payload, taco_meta_array_t
     }
 }
 
+/* Central Directory entry info for trim operations */
+typedef struct {
+    uint32_t cd_entry_offset;  /* Offset within CD data */
+    uint64_t local_offset;     /* Physical offset in ZIP file */
+    uint16_t filename_len;
+    char *filename;
+    int matches_target;
+} cd_entry_info_t;
+
+/* Helper function for clean memory cleanup
+ * @param entries Array of cd_entry_info_t
+ * @param count Number of entries in the array
+*/
+static void cleanup_cd_entries(cd_entry_info_t *entries, uint16_t count) {
+    if (!entries) return;
+    for (uint16_t i = 0; i < count; i++) {
+        free(entries[i].filename);
+    }
+    free(entries);
+}
+
 /* ----------------------- libzip helper functions --------------------------- */
 
 /**
@@ -1019,6 +1040,7 @@ int tacozip_read_header(const char *zip_path,
     return TACOZ_OK;
 }
 
+
 int tacozip_append_files(const char *zip_path,
                         const tacozip_append_entry_t *entries,
                         size_t num_entries) {
@@ -1258,6 +1280,7 @@ int tacozip_append_files(const char *zip_path,
     return TACOZ_OK;
 }
 
+
 int tacozip_replace_file(const char *zip_path,
                         const char *file_name,
                         const char *new_src_path) {
@@ -1317,4 +1340,226 @@ int tacozip_replace_file(const char *zip_path,
     }
 
     return TACOZ_OK;
+}
+
+
+
+/**
+ * @brief Trim archive from a specific point to the end (METADATA/ or COLLECTION.json only)
+ * 
+ * This function removes the specified target and everything after it in the physical
+ * archive layout. Only supports "METADATA/" (directory and all contents) and 
+ * "COLLECTION.json" (single file) for safety.
+ * 
+ * @param zip_path Path to existing TACO archive
+ * @param target Either "METADATA/" or "COLLECTION.json"
+ * @return TACOZ_OK on success, error code on failure
+ */
+int tacozip_trim_from(const char *zip_path, const char *target) {
+    TACOZIP_DEBUG(TACOZIP_LOG_INIT, "Trimming archive '%s' from target '%s'", zip_path, target);
+    
+    if (!zip_path || !target) {
+        return TACOZ_ERR_PARAM;
+    }
+    
+    /* Strict whitelist validation */
+    int is_metadata = (strcmp(target, "METADATA/") == 0);
+    int is_collection = (strcmp(target, "COLLECTION.json") == 0);
+    
+    if (!is_metadata && !is_collection) {
+        TACOZIP_DEBUG(TACOZIP_LOG_ERROR, "Invalid target '%s' - only 'METADATA/' or 'COLLECTION.json' allowed", target);
+        return TACOZ_ERR_PARAM;
+    }
+    
+    /* Open archive for reading and writing */
+    FILE *fp = fopen(zip_path, "r+b");
+    if (!fp) {
+        TACOZIP_DEBUG(TACOZIP_LOG_ERROR, "Failed to open archive: %s", strerror(errno));
+        return TACOZ_ERR_IO;
+    }
+    
+    /* Read existing Central Directory */
+    uint64_t cd_offset;
+    unsigned char *cd_data = NULL;
+    uint32_t cd_size;
+    uint16_t total_entries;
+    
+    int rc = read_existing_cd_blob(fp, &cd_offset, &cd_data, &cd_size, &total_entries);
+    if (rc != TACOZ_OK) {
+        TACOZIP_DEBUG(TACOZIP_LOG_ERROR, "Failed to read Central Directory: %d", rc);
+        fclose(fp);
+        return rc;
+    }
+    
+    TACOZIP_DEBUG(TACOZIP_LOG_CD, "Read CD: %u entries, size=%u", total_entries, cd_size);
+    
+    /* Parse Central Directory to find matching entries and their physical positions */
+    cd_entry_info_t *entries = calloc(total_entries, sizeof(cd_entry_info_t));
+    if (!entries) {
+        rc = TACOZ_ERR_IO;
+        goto cleanup;
+    }
+    
+    /* Parse all CD entries */
+    uint32_t cd_offset_iter = 0;
+    uint16_t parsed_entries = 0;
+    uint64_t trim_start_offset = UINT64_MAX;  /* Earliest offset of files to remove */
+    uint16_t matching_entries = 0;
+    
+    while (cd_offset_iter < cd_size && parsed_entries < total_entries) {
+        if (cd_offset_iter + 46 > cd_size) break;
+        
+        /* Verify CD signature */
+        if (cd_data[cd_offset_iter] != 0x50 || cd_data[cd_offset_iter+1] != 0x4b ||
+            cd_data[cd_offset_iter+2] != 0x01 || cd_data[cd_offset_iter+3] != 0x02) {
+            break;
+        }
+        
+        /* Extract field lengths */
+        uint16_t filename_len = cd_data[cd_offset_iter+28] | (cd_data[cd_offset_iter+29] << 8);
+        uint16_t extra_len = cd_data[cd_offset_iter+30] | (cd_data[cd_offset_iter+31] << 8);
+        uint16_t comment_len = cd_data[cd_offset_iter+32] | (cd_data[cd_offset_iter+33] << 8);
+        
+        if (cd_offset_iter + 46 + filename_len > cd_size) break;
+        
+        /* Extract local header offset */
+        uint32_t local_offset_32 = cd_data[cd_offset_iter+42] | (cd_data[cd_offset_iter+43] << 8) | 
+                                   (cd_data[cd_offset_iter+44] << 16) | (cd_data[cd_offset_iter+45] << 24);
+        
+        /* Handle ZIP64 offsets properly */
+        uint64_t local_offset;
+        if (local_offset_32 == ZIP64_MARKER) {
+            /* Skip ZIP64 handling for now - this would require parsing extra fields */
+            TACOZIP_DEBUG(TACOZIP_LOG_ERROR, "ZIP64 local header offsets not yet supported");
+            rc = TACOZ_ERR_INVALID_HEADER;
+            goto cleanup;
+        } else {
+            local_offset = local_offset_32;
+        }
+        
+        /* Store entry info */
+        entries[parsed_entries].cd_entry_offset = cd_offset_iter;
+        entries[parsed_entries].local_offset = local_offset;
+        entries[parsed_entries].filename_len = filename_len;
+        entries[parsed_entries].filename = malloc(filename_len + 1);
+        if (!entries[parsed_entries].filename) {
+            rc = TACOZ_ERR_IO;
+            goto cleanup;
+        }
+        
+        memcpy(entries[parsed_entries].filename, cd_data + cd_offset_iter + 46, filename_len);
+        entries[parsed_entries].filename[filename_len] = '\0';
+        
+        /* Check if this entry matches our target */
+        int matches = 0;
+        if (is_metadata) {
+            /* For METADATA/, match files that start with "METADATA/" */
+            matches = (strncmp(entries[parsed_entries].filename, "METADATA/", 9) == 0);
+        } else if (is_collection) {
+            /* For COLLECTION.json, exact match */
+            matches = (strcmp(entries[parsed_entries].filename, "COLLECTION.json") == 0);
+        }
+        
+        entries[parsed_entries].matches_target = matches;
+        
+        if (matches) {
+            matching_entries++;
+            if (local_offset < trim_start_offset) {
+                trim_start_offset = local_offset;
+            }
+            TACOZIP_DEBUG(TACOZIP_LOG_CD, "Found matching entry: '%s' at offset %llu", 
+                         entries[parsed_entries].filename, (unsigned long long)local_offset);
+        }
+        
+        parsed_entries++;
+        
+        /* Move to next CD entry */
+        cd_offset_iter += 46 + filename_len + extra_len + comment_len;
+    }
+    
+    /* Validation: ensure we found matching entries */
+    if (matching_entries == 0) {
+        TACOZIP_DEBUG(TACOZIP_LOG_ERROR, "Target '%s' not found in archive", target);
+        rc = TACOZ_ERR_NOT_FOUND;
+        goto cleanup;
+    }
+    
+    /* Validate trim_start_offset is reasonable */
+    if (trim_start_offset == UINT64_MAX) {
+        TACOZIP_DEBUG(TACOZIP_LOG_ERROR, "Invalid trim offset calculated");
+        rc = TACOZ_ERR_INVALID_HEADER;
+        goto cleanup;
+    }
+    
+    TACOZIP_DEBUG(TACOZIP_LOG_CD, "Found %u matching entries, trim_start_offset=%llu", 
+                  matching_entries, (unsigned long long)trim_start_offset);
+    
+    /* Critical validation: ensure no non-matching files exist after trim point */
+    for (uint16_t i = 0; i < parsed_entries; i++) {
+        if (!entries[i].matches_target && entries[i].local_offset >= trim_start_offset) {
+            TACOZIP_DEBUG(TACOZIP_LOG_ERROR, "Cannot trim: file '%s' exists after trim point", entries[i].filename);
+            rc = TACOZ_ERR_PARAM;  /* Operation not safe */
+            goto cleanup;
+        }
+    }
+    
+    /* Truncate the ZIP file at the trim point */
+    TACOZIP_DEBUG(TACOZIP_LOG_IO, "Truncating file at offset %llu", (unsigned long long)trim_start_offset);
+    if (ftruncate(fileno(fp), trim_start_offset) != 0) {
+        TACOZIP_DEBUG(TACOZIP_LOG_ERROR, "Failed to truncate file: %s", strerror(errno));
+        rc = TACOZ_ERR_IO;
+        goto cleanup;
+    }
+    
+    /* Position at the new end of file for writing new CD */
+    if (fseeko(fp, trim_start_offset, SEEK_SET) != 0) {
+        rc = TACOZ_ERR_IO;
+        goto cleanup;
+    }
+    
+    uint64_t new_cd_offset = trim_start_offset;
+    
+    /* Write new Central Directory with only remaining entries */
+    uint16_t remaining_entries = 0;
+    uint32_t new_cd_size = 0;
+    
+    for (uint16_t i = 0; i < parsed_entries; i++) {
+        if (!entries[i].matches_target) {
+            /* Copy this CD entry as-is from original CD data */
+            uint32_t entry_start = entries[i].cd_entry_offset;
+            
+            /* Find entry size by looking at filename, extra, comment lengths */
+            uint16_t filename_len = cd_data[entry_start+28] | (cd_data[entry_start+29] << 8);
+            uint16_t extra_len = cd_data[entry_start+30] | (cd_data[entry_start+31] << 8);
+            uint16_t comment_len = cd_data[entry_start+32] | (cd_data[entry_start+33] << 8);
+            uint32_t entry_size = 46 + filename_len + extra_len + comment_len;
+            
+            if (fwrite(cd_data + entry_start, 1, entry_size, fp) != entry_size) {
+                rc = TACOZ_ERR_IO;
+                goto cleanup;
+            }
+            
+            new_cd_size += entry_size;
+            remaining_entries++;
+            
+            TACOZIP_DEBUG(TACOZIP_LOG_CD, "Kept entry: '%s'", entries[i].filename);
+        }
+    }
+    
+    /* Write new EOCD */
+    rc = write_eocd(fp, remaining_entries, new_cd_size, new_cd_offset);
+    if (rc != TACOZ_OK) {
+        goto cleanup;
+    }
+    
+    TACOZIP_DEBUG(TACOZIP_LOG_INIT, "Trim completed: removed %u entries, %u remain", 
+                  matching_entries, remaining_entries);
+    
+    rc = TACOZ_OK;
+
+cleanup:
+    cleanup_cd_entries(entries, parsed_entries);
+    free(cd_data);
+    if (fp) fclose(fp);
+    return rc;
 }

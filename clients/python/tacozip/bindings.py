@@ -285,6 +285,18 @@ def replace_file(zip_path: str, file_name: str, new_src_path: str):
     _check_result(result)
 
 
+def trim_from(zip_path, target):
+    # Convert Path objects to strings first
+    zip_path_str = str(zip_path)
+    target_str = str(target)
+    
+    zip_path_bytes = zip_path_str.encode('utf-8')
+    target_bytes = target_str.encode('utf-8')
+    
+    result = _lib.tacozip_trim_from(zip_path_bytes, target_bytes)
+    _check_result(result)
+
+
 def get_library_version() -> str:
     """Get the C library version string."""
     version_bytes = _lib.tacozip_get_version()

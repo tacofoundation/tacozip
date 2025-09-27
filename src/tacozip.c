@@ -1394,11 +1394,12 @@ int tacozip_trim_from(const char *zip_path, const char *target) {
     TACOZIP_DEBUG(TACOZIP_LOG_CD, "Read CD: %u entries, size=%u", total_entries, cd_size);
     
     /* Parse Central Directory to find matching entries and their physical positions */
-    cd_entry_info_t *entries = calloc(total_entries, sizeof(cd_entry_info_t));
+    cd_entry_info_t *entries = malloc(total_entries * sizeof(cd_entry_info_t));
     if (!entries) {
         rc = TACOZ_ERR_IO;
         goto cleanup;
     }
+    memset(entries, 0, total_entries * sizeof(cd_entry_info_t));
     
     /* Parse all CD entries */
     uint32_t cd_offset_iter = 0;

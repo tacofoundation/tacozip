@@ -32,23 +32,31 @@
  * - Functions are exported with default visibility when building the shared lib.
  *   Define `TACOZIP_BUILD` when compiling the library itself.
  *
+ * ## Debug Mode
+ * - Runtime debug output controlled by TACOZIP_DEBUG environment variable
+ * - Set TACOZIP_DEBUG=ON, TACOZIP_DEBUG=1, or TACOZIP_DEBUG=TRUE to enable
+ * - Example: TACOZIP_DEBUG=ON ./my_program
+ * - Debug messages print to stderr with minimal overhead when disabled
+ *
  * ## Typical usage (C)
  * @code
  *   const char *src[] = {"/abs/a.bin", "/abs/b.bin"};
  *   const char *arc[] = {"a.bin", "sub/b.bin"};
  *   
  *   // Up to 7 metadata entries
- *   uint64_t offsets[] = {1000, 2000, 0, 0, 0, 0, 0};  // 0 means unused
- *   uint64_t lengths[] = {500, 750, 0, 0, 0, 0, 0};    // 0 means unused
+ *   taco_meta_array_t meta = {
+ *       .count = 2,
+ *       .entries = {{1000, 500}, {2000, 750}, {0, 0}, {0, 0}, {0, 0}, {0, 0}, {0, 0}}
+ *   };
  *   
  *   // Create archive with files and metadata
- *   int rc = tacozip_create("out.taco.zip", src, arc, 2, offsets, lengths, 7);
+ *   int rc = tacozip_create("out.taco.zip", src, arc, 2, &meta);
  *   if (rc != TACOZ_OK) { handle error }
  *   
  *   // Update metadata entries
- *   uint64_t new_offsets[7] = {1500, 2000, 0, 0, 0, 0, 0};
- *   uint64_t new_lengths[7] = {600, 750, 0, 0, 0, 0, 0};
- *   rc = tacozip_update_header("out.taco.zip", new_offsets, new_lengths, 7);
+ *   meta.entries[0].offset = 1500;
+ *   meta.entries[0].length = 600;
+ *   rc = tacozip_update_header("out.taco.zip", &meta);
  *   
  *   // Append files to the archive (single or multiple)
  *   tacozip_append_entry_t entries[] = {
@@ -351,27 +359,6 @@ int tacozip_replace_file(const char *zip_path,
  */
 TACOZIP_EXPORT
 int tacozip_trim_from(const char *zip_path, const char *target);
-
-/* ========================================================================== */
-/*                              DEBUG SYSTEM                                 */
-/* ========================================================================== */
-
-/* Debug categories */
-#define TACOZIP_LOG_INIT     "INIT"
-#define TACOZIP_LOG_HEADER   "HEADER"  
-#define TACOZIP_LOG_APPEND   "APPEND"
-#define TACOZIP_LOG_CD       "CD"      /* Central Directory operations */
-#define TACOZIP_LOG_IO       "IO"      /* File I/O operations */
-#define TACOZIP_LOG_LIBZIP   "LIBZIP"  /* libzip operations */
-#define TACOZIP_LOG_ERROR    "ERROR"   /* Error conditions */
-
-#ifdef TACOZIP_DEBUG_BUILD
-#define TACOZIP_DEBUG(category, msg, ...) do { \
-    printf("[TACOZIP:%s] [%s:%d] " msg "\n", #category, __func__, __LINE__, ##__VA_ARGS__); \
-} while(0)
-#else
-#define TACOZIP_DEBUG(...) do { } while(0)
-#endif
 
 #ifdef __cplusplus
 } /* extern "C" */

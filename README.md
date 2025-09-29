@@ -8,7 +8,7 @@
 [![Code style: black](https://img.shields.io/badge/code%20style-black-000000.svg)](https://github.com/psf/black)
 [![BlueSky](https://img.shields.io/badge/bluesky-tacofoundation-1185fe?labelColor=000000&logo=bluesky)](https://bsky.app/profile/tacofoundation.bsky.social)
 
-ZIP64 archive writer with embedded TACO Header for storing metadata offsets and lengths. Useful for cases where scanning the Central Directory is too slow.
+ZIP64 archive writer with embedded TACO Header storing offsets and lengths from consolidated Parquet metadata (see [TACO spec](https://tacofoundation.github.io/specification.html). Useful when the Central Directory scanning is too slow.
 
 ## 🚀 Quick Start
 

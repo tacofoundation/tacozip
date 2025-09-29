@@ -3,75 +3,59 @@
 
 /**
  * @file tacozip.h
- * @brief ZIP64 (STORE-only) writer with libzip backend and a fixed "TACO Header"
- *        Local File Header at byte 0. The header supports up to 7 metadata entries.
+ * @brief ZIP64 (STORE-only) writer with libzip backend and TACO Header at byte 0
  *
  * ## Overview
- * - Always ZIP64: forces ZIP64 format regardless of file sizes for serialization consistency.
- * - STORE-only (method=0). No compression for maximum throughput.
- * - Uses libzip as the underlying ZIP implementation (no more custom ZIP code).
- * - A "TACO Header" entry is written first so its LFH appears at file start.
- *   This header appear in the Central Directory as a normal file entry.
- * - Up to 7 (offset,length) metadata pairs for external indices stored in header payload.
- * - No filename normalization in C; callers must pass sanitized archive names.
+ * - ZIP64 format with STORE compression (method=0) for maximum throughput
+ * - TACO Header (157 bytes) always at file offset 0
+ * - Supports up to 7 metadata entries (offset, length pairs)
+ * - Two-tier API: low-level (I/O-free) and convenience (file wrappers)
  *
  * ## Threading
- * - Functions are not thread-safe on the same zip_path concurrently.
- *
- * ## Large files
- * - Designed for large files: build with `_FILE_OFFSET_BITS=64`.
- *
- * ## Encoding
- * - If compiled with `TACOZ_SET_UTF8_FLAG=1`, the general purpose bit 11 is set
- *   (caller guarantees archive names are UTF-8). Otherwise, bit 11 is 0.
- *
- * ## Dependencies
- * - Requires libzip for all ZIP operations.
- *
- * ## ABI / Visibility
- * - Functions are exported with default visibility when building the shared lib.
- *   Define `TACOZIP_BUILD` when compiling the library itself.
+ * - Functions are not thread-safe on the same zip_path concurrently
+ * - Low-level functions are thread-safe with separate buffers
  *
  * ## Debug Mode
- * - Runtime debug output controlled by TACOZIP_DEBUG environment variable
- * - Set TACOZIP_DEBUG=ON, TACOZIP_DEBUG=1, or TACOZIP_DEBUG=TRUE to enable
+ * - Set TACOZIP_DEBUG=ON or TACOZIP_DEBUG=1 to enable runtime debug output
  * - Example: TACOZIP_DEBUG=ON ./my_program
  * - Debug messages print to stderr with minimal overhead when disabled
  *
- * ## Typical usage (C)
+ * ## Dependencies
+ * - libzip for ZIP operations
+ * - zlib for CRC32 calculation
+ *
+ * ## Typical usage
  * @code
- *   const char *src[] = {"/abs/a.bin", "/abs/b.bin"};
- *   const char *arc[] = {"a.bin", "sub/b.bin"};
+ *   // Create archive
+ *   const char *src[] = {"/path/a.bin", "/path/b.bin"};
+ *   const char *arc[] = {"data/a.bin", "data/b.bin"};
  *   
- *   // Up to 7 metadata entries
  *   taco_meta_array_t meta = {
  *       .count = 2,
- *       .entries = {{1000, 500}, {2000, 750}, {0, 0}, {0, 0}, {0, 0}, {0, 0}, {0, 0}}
+ *       .entries = {{1000, 500}, {2000, 750}}
  *   };
  *   
- *   // Create archive with files and metadata
- *   int rc = tacozip_create("out.taco.zip", src, arc, 2, &meta);
- *   if (rc != TACOZ_OK) { handle error }
+ *   tacozip_create("out.taco", src, arc, 2, &meta);
  *   
- *   // Update metadata entries
+ *   // Read header (local file)
+ *   taco_meta_array_t read_meta;
+ *   tacozip_read_header("out.taco", &read_meta);
+ *   
+ *   // Or parse from buffer (HTTP, S3, etc)
+ *   unsigned char buffer[200];
+ *   http_get_range("https://cdn.com/data.taco", 0, 199, buffer);
+ *   tacozip_parse_header(buffer, 200, &read_meta);
+ *   
+ *   // Update metadata
  *   meta.entries[0].offset = 1500;
- *   meta.entries[0].length = 600;
- *   rc = tacozip_update_header("out.taco.zip", &meta);
+ *   tacozip_update_header("out.taco", &meta);
  *   
- *   // Append files to the archive (single or multiple)
+ *   // Append files
  *   tacozip_append_entry_t entries[] = {
- *       {"/path/to/c.bin", "data/c.bin"},
- *       {"/path/to/d.bin", "data/d.bin"},
- *       {"/path/to/e.bin", "data/e.bin"}
+ *       {"/path/c.bin", "data/c.bin"},
+ *       {"/path/d.bin", "data/d.bin"}
  *   };
- *   rc = tacozip_append_files("out.taco.zip", entries, 3);
- *   
- *   // Append a single file (same API)
- *   tacozip_append_entry_t single_entry = {"/path/to/f.bin", "data/f.bin"};
- *   rc = tacozip_append_files("out.taco.zip", &single_entry, 1);
- *   
- *   // Replace an existing file in the archive
- *   rc = tacozip_replace_file("out.taco.zip", "a.bin", "/path/to/new_a.bin");
+ *   tacozip_append_files("out.taco", entries, 2);
  * @endcode
  */
 
@@ -83,45 +67,45 @@ extern "C" {
 #endif
 
 /*
- * TACO Header Layout (variable size, minimum 160 bytes):
+ * TACO Header Physical Layout (157 bytes fixed):
  *
- * The header entry is a regular ZIP entry but with special content:
- * - Entry name: "TACO_HEADER"
- * - Method: STORE (0)
- * - Content: binary payload with metadata pairs
+ *  Offset | Size | Content
+ *  -------|------|--------------------------------------------------
+ *  0      | 30   | Local File Header (ZIP LFH)
+ *  30     | 11   | Filename: "TACO_HEADER"
+ *  41     | 116  | Payload (metadata entries)
  *
- * Header payload format:
- *  [0]      : uint8_t count (number of valid entries, 0-7)
- *  [1..3]   : padding (3 bytes for alignment)
- *  [4..115] : 7 pairs of uint64_le (offset, length) - total 112 bytes
- *
- * Total payload size: 116 bytes (4 + 7*16)
+ * Payload format (116 bytes):
+ *  [0]      : uint8_t count (0-7 valid entries)
+ *  [1..3]   : padding (reserved, must be 0)
+ *  [4..115] : 7 × (uint64_t offset, uint64_t length) = 7 × 16 = 112 bytes
  */
 
 #define TACO_HEADER_MAX_ENTRIES   7u
-#define TACO_HEADER_PAYLOAD_SIZE  116u  /* 4 bytes header + 7*16 bytes pairs */
+#define TACO_HEADER_PAYLOAD_SIZE  116u
+#define TACO_HEADER_TOTAL_SIZE    157u
 #define TACO_HEADER_NAME          "TACO_HEADER"
 #define TACO_HEADER_NAME_LEN      11u
 
 /** @brief Single metadata entry */
 typedef struct {
-    uint64_t offset;  /**< Absolute byte offset of external metadata. */
-    uint64_t length;  /**< Length in bytes of external metadata.      */
+    uint64_t offset;  /**< Byte offset in external file */
+    uint64_t length;  /**< Length in bytes */
 } taco_meta_entry_t;
 
-/** @brief Array of up to 7 metadata entries carried by the header. */
+/** @brief Metadata array (up to 7 entries) */
 typedef struct {
-    uint8_t count;                               /**< Number of valid entries (0-7). */
-    taco_meta_entry_t entries[TACO_HEADER_MAX_ENTRIES]; /**< Metadata entries array. */
+    uint8_t count;                                       /**< Valid entries (0-7) */
+    taco_meta_entry_t entries[TACO_HEADER_MAX_ENTRIES]; /**< Entry array */
 } taco_meta_array_t;
 
-/** @brief Entry for append operations (single or batch) */
+/** @brief Entry for append operations */
 typedef struct {
-    const char *src_path;  /**< Path to the source file on filesystem. */
-    const char *arc_name;  /**< Name to use for the file in the archive. */
+    const char *src_path;  /**< Filesystem path to source file */
+    const char *arc_name;  /**< Name in archive */
 } tacozip_append_entry_t;
 
-/* Export / visibility macro */
+/* Export/visibility */
 #if defined(_WIN32) || defined(__CYGWIN__)
   #ifdef TACOZIP_BUILD
     #define TACOZIP_EXPORT __declspec(dllexport)
@@ -136,65 +120,157 @@ typedef struct {
   #endif
 #endif
 
-/**
- * @enum tacozip_status
- * @brief Return codes (0 = success, negative = error).
- */
+/** @brief Return codes */
 enum {
-    TACOZ_OK                =  0,  /**< Success. */
-    TACOZ_ERR_IO            = -1,  /**< I/O error (open/read/write/close/flush). */
-    TACOZ_ERR_LIBZIP        = -2,  /**< libzip error. */
-    TACOZ_ERR_INVALID_HEADER = -3,  /**< Header bytes malformed or unexpected. */
-    TACOZ_ERR_PARAM         = -4,  /**< Invalid argument(s). */
-    TACOZ_ERR_NOT_FOUND     = -5,  /**< File not found in archive. */
-    TACOZ_ERR_EXISTS        = -6   /**< File already exists in archive. */
+    TACOZ_OK                =  0,  /**< Success */
+    TACOZ_ERR_IO            = -1,  /**< I/O error */
+    TACOZ_ERR_LIBZIP        = -2,  /**< libzip error */
+    TACOZ_ERR_INVALID_HEADER = -3,  /**< Invalid header */
+    TACOZ_ERR_PARAM         = -4,  /**< Invalid parameters */
+    TACOZ_ERR_NOT_FOUND     = -5,  /**< File not found */
+    TACOZ_ERR_EXISTS        = -6   /**< File exists */
 };
 
 /* ========================================================================== */
-/*                             VERSION INFORMATION                           */
+/*                             VERSION                                       */
 /* ========================================================================== */
 
 /**
- * @brief Get the version string of the tacozip C library.
- *
- * This function returns a compile-time version string that identifies the 
- * version of the tacozip C library. The version string is defined by the
- * TACOZIP_VERSION_STRING macro, which is typically set during the build
- * process via CMake using the PROJECT_VERSION variable.
- *
- * @return Version string (e.g., "1.2.3").
+ * @brief Get library version string
+ * @return Version string (e.g., "1.2.3")
  */
 TACOZIP_EXPORT
 const char* tacozip_get_version(void);
 
 /* ========================================================================== */
-/*                                 CORE API                                  */
+/*                          LOW-LEVEL API (I/O-FREE)                         */
 /* ========================================================================== */
 
 /**
- * @brief Create a ZIP64 archive with a TACO Header supporting up to 7 metadata entries.
+ * @brief Parse TACO header from buffer (no I/O)
  *
- * Creates a new archive using libzip backend with forced ZIP64 format and STORE compression.
- * The TACO Header entry is written first so its Local File Header appears at byte 0.
- * 
- * @param zip_path     Output path for the archive.
- * @param src_files    Array of absolute or relative filesystem paths (N elements).
- * @param arc_files    Array of archive names (N elements; used verbatim).
- * @param num_files    Number of files N.
- * @param meta         Metadata structure containing up to 7 entries (use 0,0 for unused entries).
- * @return             TACOZ_OK on success; negative error code otherwise.
+ * Parses metadata from first 157 bytes of a TACO archive. Caller provides
+ * the bytes via any I/O mechanism (file, HTTP, S3, mmap, etc).
  *
- * @note The function uses meta->count to determine how many entries are valid.
- * @note All files will be stored using STORE method (no compression).
- * @note Unused entries in meta->entries should be set to {0, 0}.
+ * @param buffer     Buffer with at least 157 bytes
+ * @param buffer_size Buffer size (must be >= 157)
+ * @param meta_out   Output metadata structure
+ * @return           TACOZ_OK or error code
+ *
+ * @note Validates LFH signature and filename
+ * @note Thread-safe if different buffers used
  *
  * @code
- * // Create archive with 2 metadata entries
- * taco_meta_array_t meta = {
- *     .count = 2,
- *     .entries = {{1000, 500}, {2000, 750}, {0, 0}, {0, 0}, {0, 0}, {0, 0}, {0, 0}}
- * };
- * int rc = tacozip_create("out.taco.zip", src, arc, 2, &meta);
+ * unsigned char buf[200];
+ * http_get_range("https://x.com/data.taco", 0, 199, buf);
+ * taco_meta_array_t meta;
+ * tacozip_parse_header(buf, 200, &meta);
+ * @endcode
+ */
+TACOZIP_EXPORT
+int tacozip_parse_header(const unsigned char *buffer,
+                        size_t buffer_size,
+                        taco_meta_array_t *meta_out);
+
+/**
+ * @brief Serialize TACO header to buffer (no I/O)
+ *
+ * Generates complete 157-byte header with metadata and correct CRC32.
+ * Caller handles writing the bytes via any I/O mechanism.
+ *
+ * @param meta       Metadata to serialize
+ * @param buffer     Output buffer (must be >= 157 bytes)
+ * @param buffer_size Buffer size (must be >= 157)
+ * @return           TACOZ_OK or error code
+ *
+ * @note Always generates exactly 157 bytes
+ * @note Automatically calculates CRC32
+ * @note Thread-safe if different buffers used
+ *
+ * @code
+ * taco_meta_array_t meta = {.count = 2, .entries = {{1000, 500}, {2000, 750}}};
+ * unsigned char buf[157];
+ * tacozip_serialize_header(&meta, buf, 157);
+ * http_put_range("https://x.com/data.taco", 0, 156, buf);
+ * @endcode
+ */
+TACOZIP_EXPORT
+int tacozip_serialize_header(const taco_meta_array_t *meta,
+                            unsigned char *buffer,
+                            size_t buffer_size);
+
+/* ========================================================================== */
+/*                       CONVENIENCE API (FILE WRAPPERS)                     */
+/* ========================================================================== */
+
+/**
+ * @brief Read header from file
+ *
+ * Reads first 157 bytes from file and parses metadata.
+ * For custom I/O (HTTP, S3, mmap), use tacozip_parse_header().
+ *
+ * @param zip_path   Path to TACO archive
+ * @param meta_out   Output metadata
+ * @return           TACOZ_OK or error code
+ *
+ * @code
+ * taco_meta_array_t meta;
+ * tacozip_read_header("archive.taco", &meta);
+ * printf("Entries: %u\n", meta.count);
+ * @endcode
+ */
+TACOZIP_EXPORT
+int tacozip_read_header(const char *zip_path,
+                      taco_meta_array_t *meta_out);
+
+/**
+ * @brief Update header in file
+ *
+ * Efficient update of metadata - only writes changed bytes:
+ * - 116 bytes payload at offset 41
+ * - 4 bytes CRC32 in LFH at offset 14
+ * - 4 bytes CRC32 in Central Directory
+ *
+ * For custom I/O, use tacozip_serialize_header() and write manually.
+ *
+ * @param zip_path   Path to existing TACO archive
+ * @param meta       New metadata
+ * @return           TACOZ_OK or error code
+ *
+ * @note Does NOT rewrite entire header
+ * @note Also updates CD entry CRC32
+ *
+ * @code
+ * taco_meta_array_t meta = {.count = 2, .entries = {{1500, 600}, {2000, 750}}};
+ * tacozip_update_header("archive.taco", &meta);
+ * @endcode
+ */
+TACOZIP_EXPORT
+int tacozip_update_header(const char *zip_path,
+                        const taco_meta_array_t *meta);
+
+/* ========================================================================== */
+/*                            ARCHIVE OPERATIONS                             */
+/* ========================================================================== */
+
+/**
+ * @brief Create new TACO archive
+ *
+ * Creates ZIP64 archive with TACO header at byte 0. All files use STORE
+ * compression. Header is written first so it appears physically at start.
+ *
+ * @param zip_path   Output path
+ * @param src_files  Array of source paths (N elements)
+ * @param arc_files  Array of archive names (N elements)
+ * @param num_files  Number of files
+ * @param meta       Metadata (up to 7 entries)
+ * @return           TACOZ_OK or error code
+ *
+ * @code
+ * const char *src[] = {"/path/a.bin", "/path/b.bin"};
+ * const char *arc[] = {"data/a.bin", "data/b.bin"};
+ * taco_meta_array_t meta = {.count = 1, .entries = {{1000, 500}}};
+ * tacozip_create("out.taco", src, arc, 2, &meta);
  * @endcode
  */
 TACOZIP_EXPORT
@@ -204,102 +280,26 @@ int tacozip_create(const char *zip_path,
                   size_t num_files,
                   const taco_meta_array_t *meta);
 
-
 /**
- * @brief Update all metadata entries in the header in place.
+ * @brief Append files to existing archive
  *
- * Modifies the TACO Header entry in an existing archive without affecting
- * other files. The archive structure remains unchanged.
+ * Adds one or more files efficiently (single CD update for batch).
+ * Header and existing files remain unchanged.
  *
- * @param zip_path     Path to an existing archive created by this library.
- * @param meta         Metadata structure containing up to 7 entries (use 0,0 for unused entries).
- * @return             TACOZ_OK on success; negative error code otherwise.
+ * @param zip_path    Path to existing archive
+ * @param entries     Array of entries to append
+ * @param num_entries Number of entries
+ * @return            TACOZ_OK or error code
  *
- * @note The function uses meta->count to determine how many entries are valid.
- * @note This operation is optimized and bypasses libzip for fast access.
- * @note Unused entries in meta->entries should be set to {0, 0}.
+ * @note Returns TACOZ_ERR_EXISTS if any arc_name conflicts
+ * @note Atomic - all files appended or none
  *
  * @code
- * // Update header with new metadata
- * taco_meta_array_t meta = {
- *     .count = 3,
- *     .entries = {{1500, 600}, {2000, 750}, {3000, 1000}, {0, 0}, {0, 0}, {0, 0}, {0, 0}}
- * };
- * int rc = tacozip_update_header("archive.taco", &meta);
- * @endcode
- */
-TACOZIP_EXPORT
-int tacozip_update_header(const char *zip_path,
-                        const taco_meta_array_t *meta);
-
-/**
- * @brief Read all metadata entries from the header.
- *
- * Reads the TACO Header entry from an existing archive without affecting
- * other files. This function extracts the current metadata stored in the header.
- *
- * @param zip_path     Path to an existing archive created by this library.
- * @param meta_out     Output structure to receive metadata (caller must provide).
- * @return             TACOZ_OK on success; negative error code otherwise.
- *
- * @note The function reads all 7 entries. Unused entries will be set to (0, 0).
- * @note The meta_out->count field will contain the number of valid entries.
- * @note This operation is optimized and bypasses libzip for fast access.
- *
- * @code
- * // Read current header metadata
- * taco_meta_array_t meta;
- * int rc = tacozip_read_header("archive.taco", &meta);
- * if (rc == TACOZ_OK) {
- *     printf("Found %u metadata entries\n", meta.count);
- *     for (int i = 0; i < meta.count; i++) {
- *         printf("Entry %d: offset=%llu, length=%llu\n", 
- *                i, meta.entries[i].offset, meta.entries[i].length);
- *     }
- * }
- * @endcode
- */
-TACOZIP_EXPORT
-int tacozip_read_header(const char *zip_path,
-                      taco_meta_array_t *meta_out);
-
-/**
- * @brief Append one or more files to an existing TACO archive.
- *
- * Adds new files to an existing archive created by this library. This function
- * can append a single file or multiple files in a single operation. When appending
- * multiple files, this is much more efficient than multiple individual operations
- * as it only updates the Central Directory once.
- * 
- * The TACO Header and existing files remain unchanged. All new files will use 
- * STORE method (no compression) like all other files in the archive.
- *
- * @param zip_path    Path to an existing archive created by this library.
- * @param entries     Array of tacozip_append_entry_t specifying files to append.
- * @param num_entries Number of entries in the array (1 for single file append).
- * @return            TACOZ_OK on success; negative error code otherwise.
- *                    Returns TACOZ_ERR_EXISTS if any arc_name already exists in archive.
- *                    Returns TACOZ_ERR_IO if any src_path cannot be read.
- *
- * @note All arc_name values must not conflict with existing files in the archive.
- * @note This operation preserves the TACO Header and all metadata entries.
- * @note All appended files will use STORE compression method for consistency.
- * @note For single file append, pass num_entries=1 with a single entry.
- * @note For multiple files, this operation is atomic - either all files are
- *       appended successfully or none are (archive remains unchanged on error).
- *
- * @code
- * // Single file append
- * tacozip_append_entry_t entry = {"/path/to/file.bin", "data/file.bin"};
- * int rc = tacozip_append_files("archive.taco", &entry, 1);
- * 
- * // Multiple files append
  * tacozip_append_entry_t entries[] = {
- *     {"/path/to/file1.bin", "data/file1.bin"},
- *     {"/path/to/file2.bin", "data/file2.bin"},
- *     {"/path/to/file3.bin", "data/file3.bin"}
+ *     {"/path/c.bin", "data/c.bin"},
+ *     {"/path/d.bin", "data/d.bin"}
  * };
- * int rc = tacozip_append_files("archive.taco", entries, 3);
+ * tacozip_append_files("archive.taco", entries, 2);
  * @endcode
  */
 TACOZIP_EXPORT
@@ -308,21 +308,20 @@ int tacozip_append_files(const char *zip_path,
                         size_t num_entries);
 
 /**
- * @brief Replace a specific file in an existing TACO archive.
+ * @brief Replace file in archive
  *
- * Finds a file by its archive name and replaces it with content from a new 
- * source file. The TACO Header and other files remain unchanged. The replacement 
- * file will use STORE method (no compression) like all other files in the archive.
+ * Replaces existing file content. Header and other files unchanged.
  *
- * @param zip_path     Path to an existing archive created by this library.
- * @param file_name    Name of the file in the archive to replace (exact match).
- * @param new_src_path Path to the new file that will replace the existing one.
- * @return             TACOZ_OK on success; negative error code otherwise.
- *                     Returns TACOZ_ERR_NOT_FOUND if file_name doesn't exist in archive.
+ * @param zip_path     Path to archive
+ * @param file_name    Archive name to replace
+ * @param new_src_path New source file path
+ * @return             TACOZ_OK or error code
  *
- * @note The file_name must match exactly as it was stored in the archive.
- * @note The new file will maintain the same archive name but with updated content.
- * @note This operation preserves the TACO Header and all metadata entries.
+ * @note Cannot replace TACO_HEADER
+ *
+ * @code
+ * tacozip_replace_file("archive.taco", "data.bin", "/path/new_data.bin");
+ * @endcode
  */
 TACOZIP_EXPORT
 int tacozip_replace_file(const char *zip_path,
@@ -330,38 +329,28 @@ int tacozip_replace_file(const char *zip_path,
                         const char *new_src_path);
 
 /**
- * @brief Trim archive from a specific point to the end (METADATA/ or COLLECTION.json only)
+ * @brief Trim archive from target to end
  *
- * Removes the specified target and everything that comes after it in the physical 
- * archive layout. This is an efficient operation that truncates the file instead 
- * of moving data around.
- * 
- * SAFETY RESTRICTIONS:
- * - Only accepts "METADATA/" or "COLLECTION.json" as targets
- * - Only works if no files exist after the target in the physical layout
- * - Designed for TACO's specific structure: DATA/ → METADATA/ → COLLECTION.json
- * 
- * TYPICAL USAGE:
- * - Remove old metadata: tacozip_trim_from("archive.taco", "METADATA/")
- * - Remove collection file: tacozip_trim_from("archive.taco", "COLLECTION.json")
- * - Then append new files with tacozip_append_files()
+ * Fast truncation operation. Only accepts "METADATA/" or "COLLECTION.json"
+ * for safety. Fails if non-target files exist after trim point.
  *
- * @param zip_path Path to an existing TACO archive
- * @param target Either "METADATA/" (removes entire directory) or "COLLECTION.json"
- * @return TACOZ_OK on success; negative error code otherwise.
- *         TACOZ_ERR_PARAM if target is not whitelisted or operation unsafe
- *         TACOZ_ERR_NOT_FOUND if target doesn't exist in archive
+ * @param zip_path Path to archive
+ * @param target   "METADATA/" or "COLLECTION.json"
+ * @return         TACOZ_OK or error code
  *
- * @note This operation truncates the physical file, making it very fast
- * @note For "METADATA/", removes ALL files/folders that start with "METADATA/"
- * @note Operation fails if any non-target files exist after the trim point
- * @note After trimming, you can use tacozip_append_files() to rebuild that section
+ * @note Truncates file - very fast
+ * @note For "METADATA/", removes all files starting with "METADATA/"
+ *
+ * @code
+ * tacozip_trim_from("archive.taco", "METADATA/");
+ * // Then rebuild: tacozip_append_files(...)
+ * @endcode
  */
 TACOZIP_EXPORT
 int tacozip_trim_from(const char *zip_path, const char *target);
 
 #ifdef __cplusplus
-} /* extern "C" */
+}
 #endif
 
 #endif /* TACOZIP_H */

@@ -10,7 +10,6 @@
  * - tacozip_get_version() - get library version
  */
 
-/* Platform-specific feature detection */
 #if defined(__linux__) || defined(__gnu_linux__)
 #ifndef _GNU_SOURCE
 #define _GNU_SOURCE
@@ -51,7 +50,7 @@
 #include <zip.h>
 #include <zlib.h>
 
-/* ------------------------------- Debug System ------------------------------ */
+/* Debug system */
 static int tacozip_debug_enabled = -1;
 
 static inline int tacozip_should_debug(void) {
@@ -66,13 +65,15 @@ static inline int tacozip_should_debug(void) {
     return tacozip_debug_enabled;
 }
 
-#define TACOZIP_DEBUG(msg, ...) do { \
+/* C99-compatible debug macro without GNU extensions */
+#define TACOZIP_DEBUG(...) do { \
     if (tacozip_should_debug()) { \
-        fprintf(stderr, "[TACOZIP] " msg "\n", ##__VA_ARGS__); \
+        fprintf(stderr, "[TACOZIP] " __VA_ARGS__); \
+        fprintf(stderr, "\n"); \
     } \
 } while(0)
 
-/* ------------------------------- Tunables ---------------------------------- */
+/* Constants */
 #ifndef TACOZ_COPY_BUFSZ
 #define TACOZ_COPY_BUFSZ (1u << 20)
 #endif
@@ -90,7 +91,7 @@ static inline int tacozip_should_debug(void) {
 #define LARGE_SEARCH_BUFFER 65536
 #define SMALL_SEARCH_BUFFER 1024
 
-/* -------------------------- Little-endian writers -------------------------- */
+/* Little-endian writers */
 static inline void le16(unsigned char *p, uint16_t v) {
     p[0] = (unsigned char)(v);
     p[1] = (unsigned char)(v >> 8);
@@ -114,7 +115,7 @@ static inline void le64(unsigned char *p, uint64_t v){
     p[7] = (unsigned char)(v >> 56);
 }
 
-/* ----------------------- Timestamp conversion functions ------------------- */
+/* Timestamp conversion */
 static void unix_time_to_dos(time_t unix_time, uint16_t *dos_time, uint16_t *dos_date) {
     struct tm *tm_info = localtime(&unix_time);
     
@@ -136,7 +137,7 @@ static void unix_time_to_dos(time_t unix_time, uint16_t *dos_time, uint16_t *dos
                 (tm_info->tm_mday & 0x1F);
 }
 
-/* ----------------------- Metadata helper functions ------------------------- */
+/* Metadata helpers */
 static void create_header_payload(const taco_meta_array_t *meta, unsigned char *payload) {
     memset(payload, 0, TACO_HEADER_PAYLOAD_SIZE);
     payload[0] = meta->count;
@@ -183,7 +184,7 @@ static void cleanup_cd_entries(cd_entry_info_t *entries, uint16_t count) {
     free(entries);
 }
 
-/* ----------------------- libzip helper functions --------------------------- */
+/* libzip helpers */
 static int is_directory(const char *src_path) {
     struct stat st;
     if (stat(src_path, &st) != 0) return -1;
@@ -268,7 +269,7 @@ static int add_header_to_archive(zip_t *za, const taco_meta_array_t *meta) {
     return TACOZ_OK;
 }
 
-/* ----------------------- Direct ZIP manipulation functions ----------------- */
+/* Direct ZIP manipulation */
 static int read_existing_cd_blob(FILE *fp, uint64_t *cd_offset, unsigned char **cd_data, 
                                 uint32_t *cd_size, uint16_t *total_entries) {
     if (fseeko(fp, 0, SEEK_END) != 0) return TACOZ_ERR_IO;
@@ -484,39 +485,6 @@ static int write_eocd(FILE *fp, uint16_t total_entries, uint32_t cd_size, uint64
     return TACOZ_OK;
 }
 
-static int calculate_header_payload_offset(FILE *fp, uint64_t *payload_offset) {
-    unsigned char header[30];
-    
-    if (fseek(fp, 0, SEEK_SET) != 0) return TACOZ_ERR_IO;
-    if (fread(header, 1, 30, fp) != 30) return TACOZ_ERR_IO;
-    
-    if (header[0] != 0x50 || header[1] != 0x4b || 
-        header[2] != 0x03 || header[3] != 0x04) {
-        return TACOZ_ERR_INVALID_HEADER;
-    }
-    
-    uint16_t filename_len = header[26] | (header[27] << 8);
-    uint16_t extra_len = header[28] | (header[29] << 8);
-    
-    if (filename_len != TACO_HEADER_NAME_LEN) {
-        return TACOZ_ERR_INVALID_HEADER;
-    }
-    
-    char filename[TACO_HEADER_NAME_LEN + 1];
-    if (fread(filename, 1, TACO_HEADER_NAME_LEN, fp) != TACO_HEADER_NAME_LEN) {
-        return TACOZ_ERR_IO;
-    }
-    filename[TACO_HEADER_NAME_LEN] = '\0';
-    
-    if (strcmp(filename, TACO_HEADER_NAME) != 0) {
-        return TACOZ_ERR_INVALID_HEADER;
-    }
-    
-    *payload_offset = 30 + filename_len + extra_len;
-    
-    return TACOZ_OK;
-}
-
 static int update_header_cd_crc32(FILE *fp, uint32_t new_crc32) {
     uint64_t cd_offset;
     unsigned char *cd_data;
@@ -577,40 +545,161 @@ static int update_header_cd_crc32(FILE *fp, uint32_t new_crc32) {
     return TACOZ_OK;
 }
 
-static int write_header_payload_direct(FILE *fp, uint64_t offset, const taco_meta_array_t *meta) {
-    unsigned char payload[TACO_HEADER_PAYLOAD_SIZE];
-    create_header_payload(meta, payload);
-    
-    if (fseek(fp, offset, SEEK_SET) != 0) return TACOZ_ERR_IO;
-    if (fwrite(payload, 1, TACO_HEADER_PAYLOAD_SIZE, fp) != TACO_HEADER_PAYLOAD_SIZE) return TACOZ_ERR_IO;
-    
-    uLong new_crc = crc32(0L, Z_NULL, 0);
-    new_crc = crc32(new_crc, payload, TACO_HEADER_PAYLOAD_SIZE);
-    uint32_t final_crc = (uint32_t)new_crc;
-    
-    if (fseek(fp, 14, SEEK_SET) != 0) return TACOZ_ERR_IO;
-    
-    unsigned char crc_bytes[4];
-    le32(crc_bytes, final_crc);
-    if (fwrite(crc_bytes, 1, 4, fp) != 4) return TACOZ_ERR_IO;
-    
-    int rc = update_header_cd_crc32(fp, final_crc);
-    if (rc != TACOZ_OK) return rc;
-    
-    if (fflush(fp) != 0) return TACOZ_ERR_IO;
-    
+/* ========================================================================== */
+/*                          LOW-LEVEL HEADER API                             */
+/* ========================================================================== */
+
+int tacozip_parse_header(const unsigned char *buffer,
+                        size_t buffer_size,
+                        taco_meta_array_t *meta_out) {
+    if (!buffer || !meta_out || buffer_size < TACO_HEADER_TOTAL_SIZE) {
+        return TACOZ_ERR_PARAM;
+    }
+
+    memset(meta_out, 0, sizeof(taco_meta_array_t));
+
+    /* Validate LFH signature */
+    if (buffer[0] != 0x50 || buffer[1] != 0x4b || 
+        buffer[2] != 0x03 || buffer[3] != 0x04) {
+        return TACOZ_ERR_INVALID_HEADER;
+    }
+
+    /* Validate filename = "TACO_HEADER" at offset 30 */
+    if (memcmp(buffer + 30, TACO_HEADER_NAME, TACO_HEADER_NAME_LEN) != 0) {
+        return TACOZ_ERR_INVALID_HEADER;
+    }
+
+    /* Parse payload from buffer[41] (30 LFH + 11 name) */
+    parse_header_payload(buffer + 41, meta_out);
+
+    TACOZIP_DEBUG("Parsed header: %u entries", meta_out->count);
     return TACOZ_OK;
 }
 
-static int read_header_payload_direct(FILE *fp, uint64_t offset, taco_meta_array_t *meta) {
-    if (fseek(fp, offset, SEEK_SET) != 0) return TACOZ_ERR_IO;
-    
+int tacozip_serialize_header(const taco_meta_array_t *meta,
+                            unsigned char *buffer,
+                            size_t buffer_size) {
+    if (!meta || !buffer || buffer_size < TACO_HEADER_TOTAL_SIZE) {
+        return TACOZ_ERR_PARAM;
+    }
+
+    memset(buffer, 0, TACO_HEADER_TOTAL_SIZE);
+
+    /* Create payload first */
     unsigned char payload[TACO_HEADER_PAYLOAD_SIZE];
-    if (fread(payload, 1, TACO_HEADER_PAYLOAD_SIZE, fp) != TACO_HEADER_PAYLOAD_SIZE) {
+    create_header_payload(meta, payload);
+
+    /* Calculate CRC32 of payload */
+    uLong crc = crc32(0L, Z_NULL, 0);
+    crc = crc32(crc, payload, TACO_HEADER_PAYLOAD_SIZE);
+    uint32_t final_crc = (uint32_t)crc;
+
+    /* Build Local File Header (30 bytes) */
+    le32(buffer + 0, ZIP_LFH_SIGNATURE);
+    le16(buffer + 4, ZIP_VERSION_NEEDED_ZIP64);
+    le16(buffer + 6, TACOZ_SET_UTF8_FLAG ? (1 << 11) : 0);
+    le16(buffer + 8, 0);  /* compression method = STORE */
+    
+    /* Use current time for DOS timestamp */
+    time_t now = time(NULL);
+    uint16_t dos_time, dos_date;
+    unix_time_to_dos(now, &dos_time, &dos_date);
+    le16(buffer + 10, dos_time);
+    le16(buffer + 12, dos_date);
+    
+    le32(buffer + 14, final_crc);
+    le32(buffer + 18, TACO_HEADER_PAYLOAD_SIZE);  /* compressed size */
+    le32(buffer + 22, TACO_HEADER_PAYLOAD_SIZE);  /* uncompressed size */
+    le16(buffer + 26, TACO_HEADER_NAME_LEN);
+    le16(buffer + 28, 0);  /* extra field length */
+
+    /* Copy filename (11 bytes) at offset 30 */
+    memcpy(buffer + 30, TACO_HEADER_NAME, TACO_HEADER_NAME_LEN);
+
+    /* Copy payload (116 bytes) at offset 41 */
+    memcpy(buffer + 41, payload, TACO_HEADER_PAYLOAD_SIZE);
+
+    TACOZIP_DEBUG("Serialized header: %u entries, CRC32=0x%08x", meta->count, final_crc);
+    return TACOZ_OK;
+}
+
+/* ========================================================================== */
+/*                          CONVENIENCE FILE API                             */
+/* ========================================================================== */
+
+int tacozip_read_header(const char *zip_path, taco_meta_array_t *meta_out) {
+    if (!zip_path || !meta_out) return TACOZ_ERR_PARAM;
+
+    FILE *fp = fopen(zip_path, "rb");
+    if (!fp) return TACOZ_ERR_IO;
+
+    /* Read first 157 bytes */
+    unsigned char buffer[TACO_HEADER_TOTAL_SIZE];
+    if (fread(buffer, 1, TACO_HEADER_TOTAL_SIZE, fp) != TACO_HEADER_TOTAL_SIZE) {
+        fclose(fp);
         return TACOZ_ERR_IO;
     }
-    
-    parse_header_payload(payload, meta);
+    fclose(fp);
+
+    /* Parse the buffer */
+    return tacozip_parse_header(buffer, TACO_HEADER_TOTAL_SIZE, meta_out);
+}
+
+int tacozip_update_header(const char *zip_path, const taco_meta_array_t *meta) {
+    if (!zip_path || !meta) return TACOZ_ERR_PARAM;
+
+    TACOZIP_DEBUG("Updating header in '%s'", zip_path);
+
+    /* Open file for reading and writing */
+    FILE *fp = fopen(zip_path, "r+b");
+    if (!fp) return TACOZ_ERR_IO;
+
+    /* Create new payload */
+    unsigned char payload[TACO_HEADER_PAYLOAD_SIZE];
+    create_header_payload(meta, payload);
+
+    /* Calculate new CRC32 */
+    uLong crc = crc32(0L, Z_NULL, 0);
+    crc = crc32(crc, payload, TACO_HEADER_PAYLOAD_SIZE);
+    uint32_t new_crc32 = (uint32_t)crc;
+
+    /* Write payload at offset 41 (30 LFH + 11 filename) */
+    if (fseek(fp, 41, SEEK_SET) != 0) {
+        fclose(fp);
+        return TACOZ_ERR_IO;
+    }
+
+    if (fwrite(payload, 1, TACO_HEADER_PAYLOAD_SIZE, fp) != TACO_HEADER_PAYLOAD_SIZE) {
+        fclose(fp);
+        return TACOZ_ERR_IO;
+    }
+
+    /* Update CRC32 in Local File Header at offset 14 */
+    if (fseek(fp, 14, SEEK_SET) != 0) {
+        fclose(fp);
+        return TACOZ_ERR_IO;
+    }
+
+    unsigned char crc_bytes[4];
+    le32(crc_bytes, new_crc32);
+    if (fwrite(crc_bytes, 1, 4, fp) != 4) {
+        fclose(fp);
+        return TACOZ_ERR_IO;
+    }
+
+    /* Update Central Directory entry CRC32 */
+    int rc = update_header_cd_crc32(fp, new_crc32);
+    if (rc != TACOZ_OK) {
+        fclose(fp);
+        return rc;
+    }
+
+    if (fflush(fp) != 0) {
+        fclose(fp);
+        return TACOZ_ERR_IO;
+    }
+
+    fclose(fp);
     return TACOZ_OK;
 }
 
@@ -654,49 +743,6 @@ int tacozip_create(const char *zip_path,
     if (zip_close(za) < 0) return TACOZ_ERR_IO;
 
     return TACOZ_OK;
-}
-
-int tacozip_update_header(const char *zip_path, const taco_meta_array_t *meta) {
-    if (!zip_path || !meta) return TACOZ_ERR_PARAM;
-
-    FILE *fp = fopen(zip_path, "r+b");
-    if (!fp) return TACOZ_ERR_IO;
-
-    TACOZIP_DEBUG("Updating header metadata in '%s'", zip_path);
-
-    uint64_t payload_offset;
-    int rc = calculate_header_payload_offset(fp, &payload_offset);
-    if (rc != TACOZ_OK) {
-        fclose(fp);
-        return rc;
-    }
-
-    rc = write_header_payload_direct(fp, payload_offset, meta);
-    fclose(fp);
-    
-    return rc;
-}
-
-int tacozip_read_header(const char *zip_path, taco_meta_array_t *meta_out) {
-    if (!zip_path || !meta_out) return TACOZ_ERR_PARAM;
-
-    memset(meta_out, 0, sizeof(taco_meta_array_t));
-
-    FILE *fp = fopen(zip_path, "rb");
-    if (!fp) return TACOZ_ERR_IO;
-
-    uint64_t payload_offset;
-    int rc = calculate_header_payload_offset(fp, &payload_offset);
-    if (rc != TACOZ_OK) {
-        fclose(fp);
-        return rc;
-    }
-
-    rc = read_header_payload_direct(fp, payload_offset, meta_out);
-    fclose(fp);
-    
-    TACOZIP_DEBUG("Read header: %u entries", meta_out->count);
-    return rc;
 }
 
 int tacozip_append_files(const char *zip_path,

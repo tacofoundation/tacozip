@@ -11,7 +11,7 @@ cmake_minimum_required(VERSION 3.15)
 #   cmake --install --preset release
 # -----------------------------------------------------------------------------
 project(tacozip
-  VERSION 0.9.6
+  VERSION 0.9.9
   LANGUAGES C
   DESCRIPTION "TACO ZIP: ZIP64 archive with TACO Header for fast metadata access"
 )

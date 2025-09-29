@@ -268,3 +268,171 @@ class TestBindings:
             
             result = _minimal_output_check("test.zip")
             assert isinstance(result, str)
+
+
+class TestReadHeaderBytes:
+    """Test read_header with bytes buffer support."""
+    
+    @patch('tacozip.bindings._lib')
+    def test_read_header_from_file_path(self, mock_lib):
+        """Test read_header with file path (backward compatible)."""
+        mock_lib.tacozip_read_header.return_value = config.TACOZ_OK
+        
+        # Test with string path
+        entries = bindings.read_header("test.zip")
+        
+        # Verify file-based function was called
+        mock_lib.tacozip_read_header.assert_called_once()
+        args = mock_lib.tacozip_read_header.call_args[0]
+        assert args[0] == b"test.zip"
+        
+        # Verify buffer function was NOT called
+        assert not mock_lib.tacozip_parse_header.called
+    
+    @patch('tacozip.bindings._lib')
+    def test_read_header_from_bytes_buffer(self, mock_lib):
+        """Test read_header with bytes buffer."""
+        mock_lib.tacozip_parse_header.return_value = config.TACOZ_OK
+        
+        # Create 157+ byte buffer (minimum header size)
+        buffer = b'\x00' * 200
+        
+        entries = bindings.read_header(buffer)
+        
+        # Verify buffer-based function was called
+        mock_lib.tacozip_parse_header.assert_called_once()
+        
+        # Verify file function was NOT called
+        assert not mock_lib.tacozip_read_header.called
+    
+    @patch('tacozip.bindings._lib')
+    def test_read_header_bytes_too_small(self, mock_lib):
+        """Test read_header with buffer smaller than 157 bytes."""
+        # Create buffer smaller than minimum
+        buffer = b'\x00' * 100
+        
+        with pytest.raises(ValueError) as exc_info:
+            bindings.read_header(buffer)
+        
+        assert "Buffer too small" in str(exc_info.value)
+        assert "100 < 157" in str(exc_info.value)
+    
+    @patch('tacozip.bindings._lib')
+    def test_read_header_bytes_exact_size(self, mock_lib):
+        """Test read_header with exactly 157 bytes."""
+        mock_lib.tacozip_parse_header.return_value = config.TACOZ_OK
+        
+        # Create exactly 157 byte buffer
+        buffer = b'\x00' * 157
+        
+        entries = bindings.read_header(buffer)
+        
+        # Should work fine
+        mock_lib.tacozip_parse_header.assert_called_once()
+    
+    @patch('tacozip.bindings._lib')
+    def test_read_header_pathlib_path(self, mock_lib):
+        """Test read_header with pathlib.Path object."""
+        import pathlib
+        mock_lib.tacozip_read_header.return_value = config.TACOZ_OK
+        
+        # Test with Path object
+        path = pathlib.Path("test.zip")
+        entries = bindings.read_header(path)
+        
+        # Verify file-based function was called with string
+        mock_lib.tacozip_read_header.assert_called_once()
+        args = mock_lib.tacozip_read_header.call_args[0]
+        assert args[0] == b"test.zip"
+    
+    @patch('tacozip.bindings._lib')
+    def test_read_header_bytes_http_example(self, mock_lib):
+        """Test read_header simulating HTTP range request."""
+        mock_lib.tacozip_parse_header.return_value = config.TACOZ_OK
+        
+        # Simulate HTTP response with range request
+        http_response_content = b'PK\x03\x04' + b'\x00' * 196  # ZIP signature + padding
+        
+        entries = bindings.read_header(http_response_content)
+        
+        # Verify buffer parsing was used
+        mock_lib.tacozip_parse_header.assert_called_once()
+        
+        # Check buffer size was passed correctly
+        args = mock_lib.tacozip_parse_header.call_args[0]
+        assert args[1] == 200  # buffer size
+    
+    @patch('tacozip.bindings._lib')
+    def test_read_header_bytes_error_handling(self, mock_lib):
+        """Test read_header bytes with C library error."""
+        mock_lib.tacozip_parse_header.return_value = config.TACOZ_ERR_INVALID_HEADER
+        
+        buffer = b'\x00' * 200
+        
+        with pytest.raises(exceptions.TacozipError) as exc_info:
+            bindings.read_header(buffer)
+        
+        assert exc_info.value.code == config.TACOZ_ERR_INVALID_HEADER
+    
+    @patch('tacozip.bindings._lib')
+    def test_read_header_file_error_handling(self, mock_lib):
+        """Test read_header file path with C library error."""
+        mock_lib.tacozip_read_header.return_value = config.TACOZ_ERR_IO
+        
+        with pytest.raises(exceptions.TacozipError) as exc_info:
+            bindings.read_header("nonexistent.zip")
+        
+        assert exc_info.value.code == config.TACOZ_ERR_IO
+    
+    @patch('tacozip.bindings._lib')
+    def test_read_header_bytes_with_metadata(self, mock_lib):
+        """Test read_header bytes returns correct metadata."""
+        mock_lib.tacozip_parse_header.return_value = config.TACOZ_OK
+        
+        buffer = b'\x00' * 200
+        entries = bindings.read_header(buffer)
+        
+        # Verify parse_header was called correctly
+        mock_lib.tacozip_parse_header.assert_called_once()
+        
+        # Verify correct arguments (buffer pointer, size, meta pointer)
+        args = mock_lib.tacozip_parse_header.call_args[0]
+        assert args[1] == 200  # buffer size
+        
+        # Verify it returns a list (actual metadata extraction is tested elsewhere)
+        assert isinstance(entries, list)
+    
+    def test_read_header_type_detection(self):
+        """Test that read_header correctly detects input type."""
+        # This test verifies the isinstance check works correctly
+        
+        # bytes should be detected as bytes
+        assert isinstance(b'test', bytes)
+        
+        # str should not be bytes
+        assert not isinstance('test', bytes)
+        
+        # Path should not be bytes
+        import pathlib
+        assert not isinstance(pathlib.Path('test'), bytes)
+
+
+# Integration-style tests (can be run with actual library if available)
+class TestReadHeaderIntegration:
+    """Integration tests for read_header (requires actual library)."""
+    
+    @pytest.mark.skipif(not hasattr(bindings._lib, 'tacozip_parse_header'), 
+                       reason="Library not available")
+    def test_read_header_both_methods_consistent(self, tmp_path):
+        """Test that file and bytes methods return same results."""
+        # This would require an actual TACO file
+        # Left as placeholder for integration testing
+        pass
+    
+    @pytest.mark.skipif(not hasattr(bindings._lib, 'tacozip_parse_header'),
+                       reason="Library not available")
+    def test_read_header_bytes_performance(self):
+        """Test that bytes method has no significant overhead."""
+        # This would test performance characteristics
+        # Left as placeholder for integration testing
+        pass

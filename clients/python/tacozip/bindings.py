@@ -33,9 +33,21 @@ class TacoAppendEntry(Structure):
 # Global library instance
 _lib = get_library()
 
-# Setup function signatures for consistent API
+# Setup function signatures
 _lib.tacozip_get_version.argtypes = []
 _lib.tacozip_get_version.restype = c_char_p
+
+# Low-level API
+_lib.tacozip_parse_header.argtypes = [
+    ctypes.c_void_p, c_size_t, POINTER(TacoMetaArray)
+]
+_lib.tacozip_parse_header.restype = c_int
+
+# Convenience API
+_lib.tacozip_read_header.argtypes = [
+    c_char_p, POINTER(TacoMetaArray)
+]
+_lib.tacozip_read_header.restype = c_int
 
 _lib.tacozip_create.argtypes = [
     c_char_p, POINTER(c_char_p), POINTER(c_char_p),
@@ -48,11 +60,6 @@ _lib.tacozip_update_header.argtypes = [
 ]
 _lib.tacozip_update_header.restype = c_int
 
-_lib.tacozip_read_header.argtypes = [
-    c_char_p, POINTER(TacoMetaArray)
-]
-_lib.tacozip_read_header.restype = c_int
-
 _lib.tacozip_append_files.argtypes = [
     c_char_p, POINTER(TacoAppendEntry), c_size_t
 ]
@@ -60,6 +67,9 @@ _lib.tacozip_append_files.restype = c_int
 
 _lib.tacozip_replace_file.argtypes = [c_char_p, c_char_p, c_char_p]
 _lib.tacozip_replace_file.restype = c_int
+
+_lib.tacozip_trim_from.argtypes = [c_char_p, c_char_p]
+_lib.tacozip_trim_from.restype = c_int
 
 
 def _check_result(result: int):
@@ -214,26 +224,51 @@ def update_header(zip_path: str, entries: List[Tuple[int, int]]):
     _check_result(result)
 
 
-def read_header(zip_path: str) -> List[Tuple[int, int]]:
+def read_header(source: Union[str, bytes, pathlib.Path]) -> List[Tuple[int, int]]:
     """Read all metadata entries from TACO header.
     
     Args:
-        zip_path: Path to existing TACO archive
+        source: Either a file path (str/Path) OR bytes buffer (157+ bytes)
         
     Returns:
         List of (offset, length) tuples containing the metadata entries
         
-    Example:
+    Examples:
+        # From file
         entries = read_header("archive.taco")
-        print(f"Found {len(entries)} metadata entries")
-        for i, (offset, length) in enumerate(entries):
-            print(f"Entry {i}: offset={offset}, length={length}")
+        
+        # From bytes (HTTP, S3, etc)
+        import requests
+        r = requests.get("https://cdn.com/data.taco", headers={"Range": "bytes=0-199"})
+        entries = read_header(r.content)
+        
+        # From S3
+        import boto3
+        s3 = boto3.client('s3')
+        obj = s3.get_object(Bucket='bucket', Key='data.taco', Range='bytes=0-199')
+        entries = read_header(obj['Body'].read())
     """
     meta = TacoMetaArray()
     
-    result = _lib.tacozip_read_header(
-        zip_path.encode('utf-8'), ctypes.byref(meta)
-    )
+    if isinstance(source, bytes):
+        # Parse from buffer
+        if len(source) < 157:
+            raise ValueError(f"Buffer too small: {len(source)} < 157")
+        
+        buffer_ptr = ctypes.create_string_buffer(source, len(source))
+        
+        result = _lib.tacozip_parse_header(
+            ctypes.cast(buffer_ptr, ctypes.c_void_p),
+            len(source),
+            ctypes.byref(meta)
+        )
+    else:
+        # Read from file
+        zip_path = str(source)
+        result = _lib.tacozip_read_header(
+            zip_path.encode('utf-8'), 
+            ctypes.byref(meta)
+        )
     
     _check_result(result)
     
@@ -286,6 +321,7 @@ def replace_file(zip_path: str, file_name: str, new_src_path: str):
 
 
 def trim_from(zip_path, target):
+    """Trim archive from target to end."""
     # Convert Path objects to strings first
     zip_path_str = str(zip_path)
     target_str = str(target)

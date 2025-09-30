@@ -9,7 +9,7 @@
 [![BlueSky](https://img.shields.io/badge/bluesky-tacofoundation-1185fe?labelColor=000000&logo=bluesky)](https://bsky.app/profile/tacofoundation.bsky.social)
 
 
-Regular ZIP (STORE-only) writer with libzip backend and TACO Header at byte 0 (see [TACO spec](https://tacofoundation.github.io/specification.html). Useful when the Central Directory scanning is too slow.
+Regular ZIP (STORE-only) writer with libzip backend and TACO Header at byte 0 (see [TACO spec](https://tacofoundation.github.io/specification.html)). Useful when the Central Directory scanning is too slow.
 
 ## 🚀 Quick Start
 

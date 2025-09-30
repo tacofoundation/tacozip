@@ -59,7 +59,6 @@ def self_check():
         'tacozip_create',
         'tacozip_update_header',
         'tacozip_append_files',
-        'tacozip_replace_file',
         'tacozip_read_header',
     ]
     

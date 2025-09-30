@@ -186,27 +186,7 @@ class TestBindings:
             bindings.append_files("test.zip", entries)
         
         assert exc_info.value.code == config.TACOZ_ERR_EXISTS
-    
-    @patch('tacozip.bindings._lib')
-    def test_replace_file_function(self, mock_lib):
-        """Test replace_file function."""
-        mock_lib.tacozip_replace_file.return_value = config.TACOZ_OK
         
-        bindings.replace_file("test.zip", "old.txt", "new.txt")
-        
-        # Verify function was called
-        mock_lib.tacozip_replace_file.assert_called_once()
-    
-    @patch('tacozip.bindings._lib')
-    def test_replace_file_error(self, mock_lib):
-        """Test replace_file function with error."""
-        mock_lib.tacozip_replace_file.return_value = config.TACOZ_ERR_NOT_FOUND
-        
-        with pytest.raises(exceptions.TacozipError) as exc_info:
-            bindings.replace_file("test.zip", "old.txt", "new.txt")
-        
-        assert exc_info.value.code == config.TACOZ_ERR_NOT_FOUND
-    
     @patch('tacozip.bindings._lib')
     def test_get_library_version(self, mock_lib):
         """Test get_library_version function."""

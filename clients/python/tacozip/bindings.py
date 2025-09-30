@@ -65,9 +65,6 @@ _lib.tacozip_append_files.argtypes = [
 ]
 _lib.tacozip_append_files.restype = c_int
 
-_lib.tacozip_replace_file.argtypes = [c_char_p, c_char_p, c_char_p]
-_lib.tacozip_replace_file.restype = c_int
-
 _lib.tacozip_trim_from.argtypes = [c_char_p, c_char_p]
 _lib.tacozip_trim_from.restype = c_int
 
@@ -304,17 +301,6 @@ def append_files(zip_path: str, entries: List[Tuple[str, str]]):
         zip_path.encode('utf-8'),
         entry_array,
         len(entries)
-    )
-    
-    _check_result(result)
-
-
-def replace_file(zip_path: str, file_name: str, new_src_path: str):
-    """Replace a specific file in an existing TACO archive."""
-    result = _lib.tacozip_replace_file(
-        zip_path.encode('utf-8'),
-        file_name.encode('utf-8'), 
-        new_src_path.encode('utf-8')
     )
     
     _check_result(result)

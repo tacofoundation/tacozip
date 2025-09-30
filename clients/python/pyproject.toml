@@ -4,14 +4,15 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "tacozip"
-version = "0.9.10"
-description = "TACO ZIP: ZIP64 archive with TACO Header for fast metadata access"
+version = "0.10.0"
+description = "Regular ZIP (STORE-only) writer with libzip backend and TACO Header at byte 0"
+
 readme = "README.md"
 license = "MIT"
 authors = [
     { name = "Cesar Aybar", email = "csaybar@gmail.com" }
 ]
-keywords = ["zip", "zip64", "compression", "archive", "parquet", "metadata"]
+keywords = ["zip", "archive", "parquet", "metadata"]
 classifiers = [
     "Development Status :: 4 - Beta",
     "Intended Audience :: Developers",

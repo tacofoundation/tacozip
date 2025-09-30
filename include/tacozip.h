@@ -3,18 +3,20 @@
 
 /**
  * @file tacozip.h
- * @brief ZIP64 (STORE-only) writer with libzip backend and TACO Header at byte
- * 0
+ * @brief Regular ZIP (STORE-only) writer with libzip backend and TACO Header at byte 0
  *
  * ## Overview
- * - ZIP64 format with STORE compression (method=0) for maximum throughput
+ * - Regular ZIP format (4GB max) with STORE compression (method=0) for maximum throughput
  * - TACO Header (157 bytes) always at file offset 0
  * - Supports up to 7 metadata entries (offset, length pairs)
- * - Two-tier API: low-level (I/O-free) and convenience (file wrappers)
+ *
+ * ## Size Limits
+ * - Maximum archive size: 4GB (enforced at API level)
+ * - Maximum individual file size: 4GB
+ * - Maximum entries: 65535
  *
  * ## Threading
  * - Functions are not thread-safe on the same zip_path concurrently
- * - Low-level functions are thread-safe with separate buffers
  *
  * ## Debug Mode
  * - Set TACOZIP_DEBUG=ON or TACOZIP_DEBUG=1 to enable runtime debug output
@@ -253,7 +255,7 @@ int tacozip_update_header(const char *zip_path, const taco_meta_array_t *meta);
 /**
  * @brief Create new TACO archive
  *
- * Creates ZIP64 archive with TACO header at byte 0. All files use STORE
+ * Creates regular ZIP archive with TACO header at byte 0. All files use STORE
  * compression. Header is written first so it appears physically at start.
  *
  * @param zip_path   Output path
@@ -262,6 +264,8 @@ int tacozip_update_header(const char *zip_path, const taco_meta_array_t *meta);
  * @param num_files  Number of files
  * @param meta       Metadata (up to 7 entries)
  * @return           TACOZ_OK or error code
+ *
+ * @note Maximum archive size: 4GB
  *
  * @code
  * const char *src[] = {"/path/a.bin", "/path/b.bin"};
@@ -287,7 +291,8 @@ int tacozip_create(const char *zip_path, const char *const *src_files,
  * @return            TACOZ_OK or error code
  *
  * @note Returns TACOZ_ERR_EXISTS if any arc_name conflicts
- * @note Atomic - all files appended or none
+ * @note Atomic - all files appended or none (with rollback on error)
+ * @note Maximum archive size: 4GB
  *
  * @code
  * tacozip_append_entry_t entries[] = {
@@ -301,26 +306,6 @@ TACOZIP_EXPORT
 int tacozip_append_files(const char *zip_path,
                          const tacozip_append_entry_t *entries,
                          size_t num_entries);
-
-/**
- * @brief Replace file in archive
- *
- * Replaces existing file content. Header and other files unchanged.
- *
- * @param zip_path     Path to archive
- * @param file_name    Archive name to replace
- * @param new_src_path New source file path
- * @return             TACOZ_OK or error code
- *
- * @note Cannot replace TACO_HEADER
- *
- * @code
- * tacozip_replace_file("archive.taco", "data.bin", "/path/new_data.bin");
- * @endcode
- */
-TACOZIP_EXPORT
-int tacozip_replace_file(const char *zip_path, const char *file_name,
-                         const char *new_src_path);
 
 /**
  * @brief Trim archive from target to end

@@ -18,7 +18,6 @@ def mock_library():
     mock_lib.tacozip_update_header.return_value = 0
     mock_lib.tacozip_read_header.return_value = 0
     mock_lib.tacozip_append_files.return_value = 0
-    mock_lib.tacozip_replace_file.return_value = 0
     mock_lib.tacozip_trim_from.return_value = 0
     
     # Add all required function attributes that match our C API
@@ -28,7 +27,6 @@ def mock_library():
         'tacozip_update_header',
         'tacozip_read_header',
         'tacozip_append_files',
-        'tacozip_replace_file',
         'tacozip_trim_from'
     ]
     
@@ -74,7 +72,6 @@ def mock_native_library():
             'tacozip_update_header',
             'tacozip_read_header', 
             'tacozip_append_files',
-            'tacozip_replace_file',
             'tacozip_trim_from'
         ]
         

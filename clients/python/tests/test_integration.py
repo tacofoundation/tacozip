@@ -23,7 +23,6 @@ class TestIntegration:
         assert hasattr(tacozip, 'read_header')
         assert hasattr(tacozip, 'update_header')
         assert hasattr(tacozip, 'append_files')
-        assert hasattr(tacozip, 'replace_file')
         assert hasattr(tacozip, 'get_library_version')
         assert hasattr(tacozip, 'self_check')
         assert hasattr(tacozip, 'trim_from')  
@@ -76,7 +75,7 @@ class TestIntegration:
             'TacozipError',
             
             # Core API
-            'create', 'update_header', 'append_files', 'replace_file', 
+            'create', 'update_header', 'append_files',
             'read_header', 'get_library_version', 'trim_from'
         }
         
@@ -111,7 +110,7 @@ class TestIntegration:
         """Test that all exported functions are callable."""
         functions = [
             'create', 'read_header', 'update_header', 'append_files',
-            'replace_file', 'get_library_version', 'self_check', 'trim_from'
+            'get_library_version', 'self_check', 'trim_from'
         ]
         
         for func_name in functions:

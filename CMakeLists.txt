@@ -1,9 +1,9 @@
 cmake_minimum_required(VERSION 3.15)
 
 # -----------------------------------------------------------------------------
-# tacozip — ZIP64 (always ZIP64), STORE-only writer with TACO Header supporting
-# up to 7 metadata entries. Each entry points to a different parquet file.
-# Now uses libzip backend instead of custom ZIP implementation.
+# tacozip — Regular ZIP (STORE-only) writer with libzip backend and TACO Header 
+# at byte 0 supporting up to 7 metadata entries. Each entry points to a different
+# parquet file. Now uses libzip backend instead of custom ZIP implementation.
 #
 # Quickstart:
 #   cmake --preset release
@@ -11,9 +11,9 @@ cmake_minimum_required(VERSION 3.15)
 #   cmake --install --preset release
 # -----------------------------------------------------------------------------
 project(tacozip
-  VERSION 0.9.10
+  VERSION 0.10.0
   LANGUAGES C
-  DESCRIPTION "TACO ZIP: ZIP64 archive with TACO Header for fast metadata access"
+  DESCRIPTION "Regular ZIP (STORE-only) writer with libzip backend and TACO Header at byte 0"
 )
 
 # Add project version to compile definitions

@@ -10,6 +10,14 @@
  * - tacozip_trim_from() - trim archive from end (optimized, bypasses libzip)
  */
 
+/*
+ * tacozip.c - Regular ZIP (STORE-only) writer with libzip backend and TACO Header
+ * supporting up to 7 metadata entries.
+ *
+ * IMPORTANT: This library only supports regular ZIP format (4GB max).
+ * ZIP64 is NOT supported.
+ */
+
 #if defined(__linux__) || defined(__gnu_linux__)
 #ifndef _GNU_SOURCE
 #define _GNU_SOURCE
@@ -224,6 +232,7 @@ static int add_header_to_archive(zip_t *za, const taco_meta_array_t *meta) {
   zip_int64_t index =
       zip_file_add(za, TACO_HEADER_NAME, source, ZIP_FL_OVERWRITE);
   if (index < 0) {
+    zip_source_free(source);
     return TACOZ_ERR_LIBZIP;
   }
 
@@ -889,6 +898,7 @@ int tacozip_append_files(const char *zip_path,
 
   return TACOZ_OK;
 }
+
 
 int tacozip_trim_from(const char *zip_path, const char *target) {
   if (!zip_path || !target)

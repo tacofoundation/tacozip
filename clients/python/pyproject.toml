@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "tacozip"
-version = "0.10.0"
+version = "0.10.1"
 description = "Regular ZIP (STORE-only) writer with libzip backend and TACO Header at byte 0"
 
 readme = "README.md"

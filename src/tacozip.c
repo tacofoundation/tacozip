@@ -163,18 +163,22 @@ static void create_header_payload(const taco_meta_array_t *meta,
   }
 }
 
-static void parse_header_payload(const unsigned char *payload,
+static int parse_header_payload(const unsigned char *payload,
                                  taco_meta_array_t *meta) {
-  meta->count = payload[0];
-  if (meta->count > TACO_HEADER_MAX_ENTRIES) {
-    meta->count = TACO_HEADER_MAX_ENTRIES;
+  uint8_t count = payload[0];
+  if (count > TACO_HEADER_MAX_ENTRIES) {
+    return TACOZ_ERR_INVALID_HEADER;
   }
+  
+  meta->count = count;
 
   const unsigned char *pairs_start = payload + 4;
   for (size_t i = 0; i < TACO_HEADER_MAX_ENTRIES; i++) {
     meta->entries[i].offset = read_le64(pairs_start + i * 16);
     meta->entries[i].length = read_le64(pairs_start + i * 16 + 8);
   }
+  
+  return TACOZ_OK;
 }
 
 typedef struct {
@@ -544,7 +548,10 @@ int tacozip_parse_header(const unsigned char *buffer, size_t buffer_size,
     return TACOZ_ERR_INVALID_HEADER;
   }
 
-  parse_header_payload(buffer + 41, meta_out);
+  int rc = parse_header_payload(buffer + 41, meta_out);
+  if (rc != TACOZ_OK) {
+    return rc;
+  }
 
   TACOZIP_DEBUG("Parsed header: %u entries", meta_out->count);
   return TACOZ_OK;
@@ -732,6 +739,35 @@ int tacozip_append_files(const char *zip_path,
     }
   }
 
+  uint64_t projected_size = old_cd_offset;
+  
+  for (size_t i = 0; i < num_entries; i++) {
+    struct stat st;
+    if (stat(entries[i].src_path, &st) != 0) {
+      free(existing_cd_data);
+      fclose(fp);
+      return TACOZ_ERR_IO;
+    }
+    
+    size_t filename_len = strlen(entries[i].arc_name);
+    if (filename_len > 65535) {
+      free(existing_cd_data);
+      fclose(fp);
+      return TACOZ_ERR_PARAM;
+    }
+    
+    projected_size += 30 + filename_len + st.st_size;
+    projected_size += 46 + filename_len;
+  }
+  
+  projected_size += existing_cd_size + 22;
+  
+  if (projected_size > 0xFFFFFFFF) {
+    free(existing_cd_data);
+    fclose(fp);
+    return TACOZ_ERR_TOO_LARGE;
+  }
+
   if (fseeko(fp, old_cd_offset, SEEK_SET) != 0) {
     free(existing_cd_data);
     fclose(fp);
@@ -893,7 +929,6 @@ int tacozip_append_files(const char *zip_path,
 
   return TACOZ_OK;
 }
-
 
 int tacozip_trim_from(const char *zip_path, const char *target) {
   if (!zip_path || !target)

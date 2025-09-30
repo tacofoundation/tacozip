@@ -131,7 +131,8 @@ enum {
   TACOZ_ERR_INVALID_HEADER = -3, /**< Invalid header */
   TACOZ_ERR_PARAM = -4,          /**< Invalid parameters */
   TACOZ_ERR_NOT_FOUND = -5,      /**< File not found */
-  TACOZ_ERR_EXISTS = -6          /**< File exists */
+  TACOZ_ERR_EXISTS = -6,         /**< File exists */
+  TACOZ_ERR_TOO_LARGE = -7       /**< Archive too large (>4GB) */  
 };
 
 /* ========================================================================== */

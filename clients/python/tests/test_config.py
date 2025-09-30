@@ -15,6 +15,7 @@ class TestConfig:
         assert config.TACOZ_ERR_PARAM == -4
         assert config.TACOZ_ERR_NOT_FOUND == -5
         assert config.TACOZ_ERR_EXISTS == -6
+        assert config.TACOZ_ERR_TOO_LARGE == -7
     
     def test_header_constants(self):
         """Test TACO Header constants."""

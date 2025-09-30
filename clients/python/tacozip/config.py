@@ -8,6 +8,7 @@ TACOZ_ERR_INVALID_HEADER = -3
 TACOZ_ERR_PARAM = -4
 TACOZ_ERR_NOT_FOUND = -5
 TACOZ_ERR_EXISTS = -6
+TACOZ_ERR_TOO_LARGE = -7
 
 # Error messages
 ERROR_MESSAGES = {
@@ -17,6 +18,7 @@ ERROR_MESSAGES = {
     TACOZ_ERR_PARAM: "Invalid argument(s)",
     TACOZ_ERR_NOT_FOUND: "File not found in archive",
     TACOZ_ERR_EXISTS: "File already exists in archive",
+    TACOZ_ERR_TOO_LARGE: "Archive too large (>4GB)"
 }
 
 # TACO Header constants (updated from TACO Ghost)

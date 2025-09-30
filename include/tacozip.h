@@ -3,7 +3,8 @@
 
 /**
  * @file tacozip.h
- * @brief ZIP64 (STORE-only) writer with libzip backend and TACO Header at byte 0
+ * @brief ZIP64 (STORE-only) writer with libzip backend and TACO Header at byte
+ * 0
  *
  * ## Overview
  * - ZIP64 format with STORE compression (method=0) for maximum throughput
@@ -29,27 +30,27 @@
  *   // Create archive
  *   const char *src[] = {"/path/a.bin", "/path/b.bin"};
  *   const char *arc[] = {"data/a.bin", "data/b.bin"};
- *   
+ *
  *   taco_meta_array_t meta = {
  *       .count = 2,
  *       .entries = {{1000, 500}, {2000, 750}}
  *   };
- *   
+ *
  *   tacozip_create("out.taco", src, arc, 2, &meta);
- *   
+ *
  *   // Read header (local file)
  *   taco_meta_array_t read_meta;
  *   tacozip_read_header("out.taco", &read_meta);
- *   
+ *
  *   // Or parse from buffer (HTTP, S3, etc)
  *   unsigned char buffer[200];
  *   http_get_range("https://cdn.com/data.taco", 0, 199, buffer);
  *   tacozip_parse_header(buffer, 200, &read_meta);
- *   
+ *
  *   // Update metadata
  *   meta.entries[0].offset = 1500;
  *   tacozip_update_header("out.taco", &meta);
- *   
+ *
  *   // Append files
  *   tacozip_append_entry_t entries[] = {
  *       {"/path/c.bin", "data/c.bin"},
@@ -59,8 +60,8 @@
  * @endcode
  */
 
-#include <stdint.h>
 #include <stddef.h>
+#include <stdint.h>
 
 #ifdef __cplusplus
 extern "C" {
@@ -81,54 +82,54 @@ extern "C" {
  *  [4..115] : 7 × (uint64_t offset, uint64_t length) = 7 × 16 = 112 bytes
  */
 
-#define TACO_HEADER_MAX_ENTRIES   7u
-#define TACO_HEADER_PAYLOAD_SIZE  116u
-#define TACO_HEADER_TOTAL_SIZE    157u
-#define TACO_HEADER_NAME          "TACO_HEADER"
-#define TACO_HEADER_NAME_LEN      11u
+#define TACO_HEADER_MAX_ENTRIES 7u
+#define TACO_HEADER_PAYLOAD_SIZE 116u
+#define TACO_HEADER_TOTAL_SIZE 157u
+#define TACO_HEADER_NAME "TACO_HEADER"
+#define TACO_HEADER_NAME_LEN 11u
 
 /** @brief Single metadata entry */
 typedef struct {
-    uint64_t offset;  /**< Byte offset in external file */
-    uint64_t length;  /**< Length in bytes */
+  uint64_t offset; /**< Byte offset in external file */
+  uint64_t length; /**< Length in bytes */
 } taco_meta_entry_t;
 
 /** @brief Metadata array (up to 7 entries) */
 typedef struct {
-    uint8_t count;                                       /**< Valid entries (0-7) */
-    taco_meta_entry_t entries[TACO_HEADER_MAX_ENTRIES]; /**< Entry array */
+  uint8_t count; /**< Valid entries (0-7) */
+  taco_meta_entry_t entries[TACO_HEADER_MAX_ENTRIES]; /**< Entry array */
 } taco_meta_array_t;
 
 /** @brief Entry for append operations */
 typedef struct {
-    const char *src_path;  /**< Filesystem path to source file */
-    const char *arc_name;  /**< Name in archive */
+  const char *src_path; /**< Filesystem path to source file */
+  const char *arc_name; /**< Name in archive */
 } tacozip_append_entry_t;
 
 /* Export/visibility */
 #if defined(_WIN32) || defined(__CYGWIN__)
-  #ifdef TACOZIP_BUILD
-    #define TACOZIP_EXPORT __declspec(dllexport)
-  #else
-    #define TACOZIP_EXPORT __declspec(dllimport)
-  #endif
+#ifdef TACOZIP_BUILD
+#define TACOZIP_EXPORT __declspec(dllexport)
 #else
-  #if __GNUC__ >= 4
-    #define TACOZIP_EXPORT __attribute__((visibility("default")))
-  #else
-    #define TACOZIP_EXPORT
-  #endif
+#define TACOZIP_EXPORT __declspec(dllimport)
+#endif
+#else
+#if __GNUC__ >= 4
+#define TACOZIP_EXPORT __attribute__((visibility("default")))
+#else
+#define TACOZIP_EXPORT
+#endif
 #endif
 
 /** @brief Return codes */
 enum {
-    TACOZ_OK                =  0,  /**< Success */
-    TACOZ_ERR_IO            = -1,  /**< I/O error */
-    TACOZ_ERR_LIBZIP        = -2,  /**< libzip error */
-    TACOZ_ERR_INVALID_HEADER = -3,  /**< Invalid header */
-    TACOZ_ERR_PARAM         = -4,  /**< Invalid parameters */
-    TACOZ_ERR_NOT_FOUND     = -5,  /**< File not found */
-    TACOZ_ERR_EXISTS        = -6   /**< File exists */
+  TACOZ_OK = 0,                  /**< Success */
+  TACOZ_ERR_IO = -1,             /**< I/O error */
+  TACOZ_ERR_LIBZIP = -2,         /**< libzip error */
+  TACOZ_ERR_INVALID_HEADER = -3, /**< Invalid header */
+  TACOZ_ERR_PARAM = -4,          /**< Invalid parameters */
+  TACOZ_ERR_NOT_FOUND = -5,      /**< File not found */
+  TACOZ_ERR_EXISTS = -6          /**< File exists */
 };
 
 /* ========================================================================== */
@@ -140,7 +141,7 @@ enum {
  * @return Version string (e.g., "1.2.3")
  */
 TACOZIP_EXPORT
-const char* tacozip_get_version(void);
+const char *tacozip_get_version(void);
 
 /* ========================================================================== */
 /*                          LOW-LEVEL API (I/O-FREE)                         */
@@ -168,9 +169,8 @@ const char* tacozip_get_version(void);
  * @endcode
  */
 TACOZIP_EXPORT
-int tacozip_parse_header(const unsigned char *buffer,
-                        size_t buffer_size,
-                        taco_meta_array_t *meta_out);
+int tacozip_parse_header(const unsigned char *buffer, size_t buffer_size,
+                         taco_meta_array_t *meta_out);
 
 /**
  * @brief Serialize TACO header to buffer (no I/O)
@@ -196,8 +196,7 @@ int tacozip_parse_header(const unsigned char *buffer,
  */
 TACOZIP_EXPORT
 int tacozip_serialize_header(const taco_meta_array_t *meta,
-                            unsigned char *buffer,
-                            size_t buffer_size);
+                             unsigned char *buffer, size_t buffer_size);
 
 /* ========================================================================== */
 /*                       CONVENIENCE API (FILE WRAPPERS)                     */
@@ -220,8 +219,7 @@ int tacozip_serialize_header(const taco_meta_array_t *meta,
  * @endcode
  */
 TACOZIP_EXPORT
-int tacozip_read_header(const char *zip_path,
-                      taco_meta_array_t *meta_out);
+int tacozip_read_header(const char *zip_path, taco_meta_array_t *meta_out);
 
 /**
  * @brief Update header in file
@@ -246,8 +244,7 @@ int tacozip_read_header(const char *zip_path,
  * @endcode
  */
 TACOZIP_EXPORT
-int tacozip_update_header(const char *zip_path,
-                        const taco_meta_array_t *meta);
+int tacozip_update_header(const char *zip_path, const taco_meta_array_t *meta);
 
 /* ========================================================================== */
 /*                            ARCHIVE OPERATIONS                             */
@@ -274,11 +271,9 @@ int tacozip_update_header(const char *zip_path,
  * @endcode
  */
 TACOZIP_EXPORT
-int tacozip_create(const char *zip_path,
-                  const char * const *src_files,
-                  const char * const *arc_files,
-                  size_t num_files,
-                  const taco_meta_array_t *meta);
+int tacozip_create(const char *zip_path, const char *const *src_files,
+                   const char *const *arc_files, size_t num_files,
+                   const taco_meta_array_t *meta);
 
 /**
  * @brief Append files to existing archive
@@ -304,8 +299,8 @@ int tacozip_create(const char *zip_path,
  */
 TACOZIP_EXPORT
 int tacozip_append_files(const char *zip_path,
-                        const tacozip_append_entry_t *entries,
-                        size_t num_entries);
+                         const tacozip_append_entry_t *entries,
+                         size_t num_entries);
 
 /**
  * @brief Replace file in archive
@@ -324,9 +319,8 @@ int tacozip_append_files(const char *zip_path,
  * @endcode
  */
 TACOZIP_EXPORT
-int tacozip_replace_file(const char *zip_path,
-                        const char *file_name,
-                        const char *new_src_path);
+int tacozip_replace_file(const char *zip_path, const char *file_name,
+                         const char *new_src_path);
 
 /**
  * @brief Trim archive from target to end

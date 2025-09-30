@@ -685,18 +685,10 @@ int tacozip_create(const char *zip_path, const char *const *src_files,
 
   TACOZIP_DEBUG("Creating archive '%s' with %zu files", zip_path, num_files);
 
-  int rc = add_header_to_archive(za, meta);
-  if (rc != TACOZ_OK) {
-    zip_discard(za);
-    return rc;
-  }
+  add_header_to_archive(za, meta);
 
   for (size_t i = 0; i < num_files; i++) {
-    rc = add_file_to_archive(za, src_files[i], arc_files[i]);
-    if (rc != TACOZ_OK) {
-      zip_discard(za);
-      return rc;
-    }
+    add_file_to_archive(za, src_files[i], arc_files[i]);
   }
 
   if (zip_close(za) < 0)

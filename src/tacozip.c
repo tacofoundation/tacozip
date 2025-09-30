@@ -184,64 +184,19 @@ static void cleanup_cd_entries(cd_entry_info_t *entries, uint16_t count) {
     free(entries);
 }
 
-/* libzip helpers */
-static int is_directory(const char *src_path) {
-    struct stat st;
-    if (stat(src_path, &st) != 0) return -1;
-    return S_ISDIR(st.st_mode) ? 1 : 0;
-}
-
+/* libzip helpers - OPTIMIZED: removed directory handling */
 static int add_file_to_archive(zip_t *za, const char *src_path, const char *arc_name) {
-    int path_type = is_directory(src_path);
-    
-    if (path_type == 1) {
-        char *dir_name = NULL;
-        size_t name_len = strlen(arc_name);
-        
-        if (name_len > 0 && arc_name[name_len - 1] == '/') {
-            dir_name = strdup(arc_name);
-        } else {
-            dir_name = malloc(name_len + 2);
-            if (!dir_name) return TACOZ_ERR_IO;
-            strcpy(dir_name, arc_name);
-            strcat(dir_name, "/");
-        }
-        
-        zip_source_t *source = zip_source_buffer(za, "", 0, 0);
-        if (!source) {
-            free(dir_name);
-            return TACOZ_ERR_LIBZIP;
-        }
-        
-        zip_int64_t index = zip_file_add(za, dir_name, source, ZIP_FL_OVERWRITE);
-        if (index < 0) {
-            zip_source_free(source);
-            free(dir_name);
-            return TACOZ_ERR_LIBZIP;
-        }
-        
-        zip_uint32_t external_attr = (0755 | S_IFDIR) << 16;
-        zip_file_set_external_attributes(za, (zip_uint64_t)index, ZIP_FL_UNCHANGED, ZIP_OPSYS_UNIX, external_attr);
-        zip_set_file_compression(za, (zip_uint64_t)index, ZIP_CM_STORE, 0);
-        
-        free(dir_name);
-        return TACOZ_OK;
-        
-    } else if (path_type == 0) {
-        zip_source_t *source = zip_source_file(za, src_path, 0, -1);
-        if (!source) return TACOZ_ERR_IO;
+    zip_source_t *source = zip_source_file(za, src_path, 0, -1);
+    if (!source) return TACOZ_ERR_IO;
 
-        zip_int64_t index = zip_file_add(za, arc_name, source, ZIP_FL_OVERWRITE);
-        if (index < 0) {
-            zip_source_free(source);
-            return TACOZ_ERR_LIBZIP;
-        }
-
-        zip_set_file_compression(za, (zip_uint64_t)index, ZIP_CM_STORE, 0);
-        return TACOZ_OK;
+    zip_int64_t index = zip_file_add(za, arc_name, source, ZIP_FL_OVERWRITE);
+    if (index < 0) {
+        zip_source_free(source);
+        return TACOZ_ERR_LIBZIP;
     }
-    
-    return TACOZ_ERR_IO;
+
+    zip_set_file_compression(za, (zip_uint64_t)index, ZIP_CM_STORE, 0);
+    return TACOZ_OK;
 }
 
 static int add_header_to_archive(zip_t *za, const taco_meta_array_t *meta) {

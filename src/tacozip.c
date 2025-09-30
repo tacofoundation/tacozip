@@ -8,11 +8,6 @@
  * - tacozip_append_files() - append files to archive (optimized, bypasses libzip)
  * - tacozip_get_version() - get library version
  * - tacozip_trim_from() - trim archive from end (optimized, bypasses libzip)
- */
-
-/*
- * tacozip.c - Regular ZIP (STORE-only) writer with libzip backend and TACO Header
- * supporting up to 7 metadata entries.
  *
  * IMPORTANT: This library only supports regular ZIP format (4GB max).
  * ZIP64 is NOT supported.

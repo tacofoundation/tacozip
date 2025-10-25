@@ -1,4 +1,3 @@
-"""Test version detection."""
 import pytest
 from unittest.mock import patch, Mock
 from tacozip import version

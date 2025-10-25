@@ -43,12 +43,15 @@ def _load_shared():
         f"Available files in package: {[f.name for f in here.iterdir() if here.exists()]}"
     )
 
+
 # Load the shared library
 _lib = _load_shared()
+
 
 def get_library():
     """Get the loaded native library."""
     return _lib
+
 
 def self_check():
     """Perform self-check of the native library."""
@@ -57,9 +60,12 @@ def self_check():
     required_functions = [
         'tacozip_get_version',
         'tacozip_create',
-        'tacozip_update_header',
-        'tacozip_append_files',
         'tacozip_read_header',
+        'tacozip_update_header',
+        'tacozip_parse_header',
+        'tacozip_serialize_header',
+        'tacozip_detect_format',
+        'tacozip_validate',
     ]
     
     missing_functions = []

@@ -6,15 +6,43 @@
  * @brief ZIP/ZIP64 (STORE-only) writer with libzip backend and TACO Header at byte 0
  *
  * ## Overview
+ * - ZIP32 and ZIP64 format support with automatic selection
  * - STORE compression (method=0) for maximum throughput
  * - TACO Header (157 bytes) always at file offset 0
  * - Supports up to 7 metadata entries (offset, length pairs)
+ * - Comprehensive validation to detect external modifications
+ *
+ * ## CRITICAL DESIGN ASSUMPTION
+ *
+ * **The TACO_HEADER MUST always be at file offset 0.**
+ *
+ * This library is optimized for fast header access by assuming the TACO_HEADER
+ * Local File Header begins at byte 0 of the archive. This enables:
+ * - O(1) header reads (no Central Directory parsing)
+ * - Efficient header updates (direct seek to offset 0)
+ * - Fast validation checks
+ *
+ * **WARNING:** Do NOT modify TACO archives with external ZIP tools such as:
+ * - 7-Zip, WinZip, WinRAR, or similar GUI tools
+ * - `zip`, `unzip`, or other command-line tools
+ * - Any tool that may reorder entries or add prepended data
+ *
+ * External modification will break this assumption and cause:
+ * - `tacozip_read_header()` to read garbage data
+ * - `tacozip_update_header()` to corrupt the file
+ * - `tacozip_validate()` to return TACOZ_INVALID_NO_TACO or TACOZ_INVALID_REORDERED
+ *
+ * **Always use `tacozip_validate()` after receiving files from external sources
+ * to detect if they have been modified.**
  *
  * ## Size Limits
  * - ZIP32: Maximum 4GB per file, 4GB archive, 65535 entries
  * - ZIP64: Maximum 16EB per file, 16EB archive, 4B+ entries
  * - Automatic ZIP64 when files exceed 4GB
  *
+ * ## Threading
+ * - Functions are not thread-safe on the same zip_path concurrently
+ * - Different files or buffers are safe to use concurrently
  *
  * ## Debug Mode
  * - Set TACOZIP_DEBUG=ON or TACOZIP_DEBUG=1 to enable runtime debug output
@@ -37,6 +65,12 @@
  *   };
  *
  *   tacozip_create("out.taco", src, arc, 2, &meta);
+ *
+ *   // Validate archive (recommended after receiving from external source)
+ *   int result = tacozip_validate("out.taco", TACOZIP_VALIDATE_NORMAL);
+ *   if (result != TACOZ_VALID) {
+ *       fprintf(stderr, "Invalid: %s\n", tacozip_validate_error_string(result));
+ *   }
  *
  *   // Detect format
  *   int format = tacozip_detect_format("out.taco");
@@ -104,6 +138,35 @@ typedef struct {
   taco_meta_entry_t entries[TACO_HEADER_MAX_ENTRIES]; /**< Entry array */
 } taco_meta_array_t;
 
+/** @brief Validation levels */
+typedef enum {
+  TACOZIP_VALIDATE_QUICK = 0,   /**< Level 1: Header checks only (~1ms) */
+  TACOZIP_VALIDATE_NORMAL = 1,  /**< Level 1+2: + Structure checks (~10ms) */
+  TACOZIP_VALIDATE_DEEP = 2     /**< All levels: + CRC32 validation (~50ms) */
+} tacozip_validate_level_t;
+
+/** @brief Validation result codes */
+typedef enum {
+  TACOZ_VALID = 0,                    /**< File is valid */
+  
+  /* Level 1 errors (Critical - header checks) */
+  TACOZ_INVALID_NOT_ZIP = -10,        /**< Not a ZIP file (no LFH signature) */
+  TACOZ_INVALID_NO_TACO = -11,        /**< No TACO_HEADER at offset 0 */
+  TACOZ_INVALID_HEADER_SIZE = -12,    /**< Header size != 116 bytes */
+  TACOZ_INVALID_META_COUNT = -13,     /**< meta.count > 7 */
+  TACOZ_INVALID_FILE_SIZE = -14,      /**< File too small */
+  
+  /* Level 2 errors (Structure checks) */
+  TACOZ_INVALID_NO_EOCD = -20,        /**< No EOCD found */
+  TACOZ_INVALID_CD_OFFSET = -21,      /**< CD offset invalid */
+  TACOZ_INVALID_NO_CD_ENTRY = -22,    /**< TACO_HEADER not in CD */
+  TACOZ_INVALID_REORDERED = -23,      /**< CD entry doesn't point to offset 0 */
+  
+  /* Level 3 errors (Deep validation) */
+  TACOZ_INVALID_CRC_LFH = -30,        /**< CRC32 mismatch in LFH */
+  TACOZ_INVALID_CRC_CD = -31          /**< CRC32 mismatch in CD */
+} tacozip_validate_result_t;
+
 /* Export/visibility */
 #if defined(_WIN32) || defined(__CYGWIN__)
 #ifdef TACOZIP_BUILD
@@ -170,6 +233,76 @@ const char *tacozip_get_version(void);
  */
 TACOZIP_EXPORT
 int tacozip_detect_format(const char *zip_path);
+
+/* ========================================================================== */
+/*                          VALIDATION FUNCTIONS                             */
+/* ========================================================================== */
+
+/**
+ * @brief Validate TACO archive integrity with specified level
+ *
+ * Performs comprehensive validation to detect if archive has been modified
+ * by external tools or corrupted. Different levels trade speed for depth.
+ *
+ * Level 1 (QUICK): ~1ms
+ * - Checks TACO_HEADER at offset 0
+ * - Validates LFH signature and filename
+ * - Checks metadata count <= 7
+ *
+ * Level 2 (NORMAL): ~10ms
+ * - All Level 1 checks
+ * - Verifies EOCD exists and is valid
+ * - Confirms TACO_HEADER in Central Directory
+ * - Checks CD entry points to offset 0
+ *
+ * Level 3 (DEEP): ~50ms
+ * - All Level 2 checks
+ * - Validates CRC32 in LFH
+ * - Validates CRC32 in CD entry
+ *
+ * @param zip_path  Path to archive
+ * @param level     Validation depth (QUICK/NORMAL/DEEP)
+ * @return          TACOZ_VALID (0) or negative error code
+ *
+ * @note Use NORMAL for standard validation
+ * @note QUICK is sufficient for real-time checks
+ * @note DEEP recommended after network transfer
+ *
+ * @code
+ * // Standard validation
+ * int result = tacozip_validate("archive.taco", TACOZIP_VALIDATE_NORMAL);
+ * if (result != TACOZ_VALID) {
+ *     if (result == TACOZ_INVALID_NO_TACO) {
+ *         fprintf(stderr, "File modified by external tool!\n");
+ *     } else if (result == TACOZ_INVALID_REORDERED) {
+ *         fprintf(stderr, "Archive entries reordered!\n");
+ *     } else {
+ *         fprintf(stderr, "Error: %s\n", tacozip_validate_error_string(result));
+ *     }
+ * }
+ *
+ * // Quick check
+ * if (tacozip_validate("file.taco", TACOZIP_VALIDATE_QUICK) == TACOZ_VALID) {
+ *     printf("Header is valid\n");
+ * }
+ * @endcode
+ */
+TACOZIP_EXPORT
+int tacozip_validate(const char *zip_path, tacozip_validate_level_t level);
+
+/**
+ * @brief Get human-readable error message for validation result
+ *
+ * @param result  Validation result code
+ * @return        Error message string (never NULL)
+ *
+ * @code
+ * int result = tacozip_validate("file.taco", TACOZIP_VALIDATE_NORMAL);
+ * printf("Validation: %s\n", tacozip_validate_error_string(result));
+ * @endcode
+ */
+TACOZIP_EXPORT
+const char *tacozip_validate_error_string(int result);
 
 /* ========================================================================== */
 /*                          LOW-LEVEL API (I/O-FREE)                         */

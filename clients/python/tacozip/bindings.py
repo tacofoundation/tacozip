@@ -4,7 +4,12 @@ from ctypes import c_char_p, c_size_t, c_uint64, c_int, c_uint8, Structure, POIN
 from typing import List, Tuple, Union
 
 from .loader import get_library
-from .config import TACOZ_OK, TACO_HEADER_MAX_ENTRIES
+from .config import (
+    TACOZ_OK,
+    TACO_HEADER_MAX_ENTRIES,
+    TACOZIP_VALIDATE_NORMAL,
+    VALIDATION_ERROR_MESSAGES,
+)
 from .exceptions import TacozipError
 
 
@@ -22,14 +27,6 @@ class TacoMetaArray(Structure):
     ]
 
 
-class TacoAppendEntry(Structure):
-    """Entry for append operations (single or batch)."""
-    _fields_ = [
-        ("src_path", c_char_p),
-        ("arc_name", c_char_p),
-    ]
-
-
 # Global library instance
 _lib = get_library()
 
@@ -37,13 +34,16 @@ _lib = get_library()
 _lib.tacozip_get_version.argtypes = []
 _lib.tacozip_get_version.restype = c_char_p
 
-# Low-level API
 _lib.tacozip_parse_header.argtypes = [
     ctypes.c_void_p, c_size_t, POINTER(TacoMetaArray)
 ]
 _lib.tacozip_parse_header.restype = c_int
 
-# Convenience API
+_lib.tacozip_serialize_header.argtypes = [
+    POINTER(TacoMetaArray), ctypes.c_void_p, c_size_t
+]
+_lib.tacozip_serialize_header.restype = c_int
+
 _lib.tacozip_read_header.argtypes = [
     c_char_p, POINTER(TacoMetaArray)
 ]
@@ -60,13 +60,11 @@ _lib.tacozip_update_header.argtypes = [
 ]
 _lib.tacozip_update_header.restype = c_int
 
-_lib.tacozip_append_files.argtypes = [
-    c_char_p, POINTER(TacoAppendEntry), c_size_t
-]
-_lib.tacozip_append_files.restype = c_int
+_lib.tacozip_detect_format.argtypes = [c_char_p]
+_lib.tacozip_detect_format.restype = c_int
 
-_lib.tacozip_trim_from.argtypes = [c_char_p, c_char_p]
-_lib.tacozip_trim_from.restype = c_int
+_lib.tacozip_validate.argtypes = [c_char_p, c_int]
+_lib.tacozip_validate.restype = c_int
 
 
 def _check_result(result: int):
@@ -132,34 +130,12 @@ def _extract_meta_entries(meta: TacoMetaArray) -> List[Tuple[int, int]]:
     return entries
 
 
-def _prepare_append_entries(entries: List[Tuple[str, str]]) -> Tuple[ctypes.Array, List[bytes]]:
-    """Convert list of (src_path, arc_name) tuples to C append entry array."""
-    if not entries:
-        raise ValueError("Must provide at least one entry to append")
-    
-    # Keep references to byte strings to prevent garbage collection
-    byte_strings = []
-    entry_array = (TacoAppendEntry * len(entries))()
-    
-    for i, (src_path, arc_name) in enumerate(entries):
-        src_bytes = str(pathlib.Path(src_path).resolve()).encode('utf-8')
-        arc_bytes = arc_name.encode('utf-8')
-        
-        byte_strings.extend([src_bytes, arc_bytes])
-        
-        entry_array[i].src_path = src_bytes
-        entry_array[i].arc_name = arc_bytes
-    
-    return entry_array, byte_strings
-
-
 def _normalize_inputs(src_files: List[Union[str, pathlib.Path]], 
-                          arc_files: List[str] = None) -> Tuple[List[str], List[str]]:
+                      arc_files: List[str] = None) -> Tuple[List[str], List[str]]:
     """Input normalization with minimal validation."""
     
     # Convert to strings, no heavy validation
     normalized_src = [str(pathlib.Path(f).resolve()) for f in src_files]
-
     
     # Handle archive names
     if arc_files is not None:
@@ -173,7 +149,10 @@ def _normalize_inputs(src_files: List[Union[str, pathlib.Path]],
     return normalized_src, normalized_arc
 
 
-# API functions with TACO_HEADER
+# ============================================================================
+#                           PUBLIC API
+# ============================================================================
+
 def create(zip_path: str, src_files: List[Union[str, pathlib.Path]], 
            arc_files: List[str] = None, entries: List[Tuple[int, int]] = None):
     """Create archive with up to 7 metadata entries in TACO header."""
@@ -272,51 +251,50 @@ def read_header(source: Union[str, bytes, pathlib.Path]) -> List[Tuple[int, int]
     return _extract_meta_entries(meta)
 
 
-def append_files(zip_path: str, entries: List[Tuple[str, str]]):
-    """Append one or more files to an existing TACO archive.
+def detect_format(zip_path: str) -> int:
+    """Detect if archive is ZIP32 or ZIP64.
     
     Args:
-        zip_path: Path to existing TACO archive
-        entries: List of (src_path, arc_name) tuples
+        zip_path: Path to archive
         
-    Examples:
-        # Single file
-        append_files("archive.taco", [("/path/to/file.bin", "data/file.bin")])
+    Returns:
+        TACOZIP_FORMAT_ZIP32 (1), TACOZIP_FORMAT_ZIP64 (2), or TACOZIP_FORMAT_UNKNOWN (0)
         
-        # Multiple files
-        append_files("archive.taco", [
-            ("/path/to/file1.bin", "data/file1.bin"),
-            ("/path/to/file2.bin", "data/file2.bin"),
-            ("/path/to/file3.bin", "data/file3.bin")
-        ])
+    Example:
+        from tacozip import detect_format, TACOZIP_FORMAT_ZIP64
+        
+        format_type = detect_format("archive.taco")
+        if format_type == TACOZIP_FORMAT_ZIP64:
+            print("ZIP64 format detected")
     """
-    if not entries:
-        raise ValueError("Must provide at least one entry to append")
-    
-    # Prepare entry array
-    entry_array, byte_strings = _prepare_append_entries(entries)
-    
-    # Call C function
-    result = _lib.tacozip_append_files(
-        zip_path.encode('utf-8'),
-        entry_array,
-        len(entries)
-    )
-    
-    _check_result(result)
+    result = _lib.tacozip_detect_format(zip_path.encode('utf-8'))
+    return result
 
 
-def trim_from(zip_path, target):
-    """Trim archive from target to end."""
-    # Convert Path objects to strings first
-    zip_path_str = str(zip_path)
-    target_str = str(target)
+def validate(zip_path: str, level: int = TACOZIP_VALIDATE_NORMAL) -> int:
+    """Validate TACO archive integrity.
     
-    zip_path_bytes = zip_path_str.encode('utf-8')
-    target_bytes = target_str.encode('utf-8')
-    
-    result = _lib.tacozip_trim_from(zip_path_bytes, target_bytes)
-    _check_result(result)
+    Args:
+        zip_path: Path to archive
+        level: Validation level (QUICK=0, NORMAL=1, DEEP=2)
+        
+    Returns:
+        TACOZ_VALID (0) if valid, or negative error code
+        
+    Example:
+        from tacozip import validate, TACOZ_VALID, TACOZ_INVALID_NO_TACO
+        from tacozip.config import VALIDATION_ERROR_MESSAGES
+        
+        result = validate("archive.taco")
+        if result == TACOZ_VALID:
+            print("Archive is valid")
+        elif result == TACOZ_INVALID_NO_TACO:
+            print("ERROR: File was modified by external tool!")
+        else:
+            print(f"Validation failed: {VALIDATION_ERROR_MESSAGES.get(result, 'Unknown error')}")
+    """
+    result = _lib.tacozip_validate(zip_path.encode('utf-8'), level)
+    return result
 
 
 def get_library_version() -> str:

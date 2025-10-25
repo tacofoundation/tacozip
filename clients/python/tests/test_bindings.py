@@ -1,10 +1,9 @@
-"""Test bindings module."""
 import pytest
 import ctypes
 import pathlib
 from unittest.mock import patch, Mock
 from tacozip import bindings, config, exceptions
-from tacozip.bindings import TacoMetaEntry, TacoMetaArray, TacoAppendEntry
+from tacozip.bindings import TacoMetaEntry, TacoMetaArray
 
 
 class TestBindings:
@@ -30,15 +29,6 @@ class TestBindings:
             meta_array.entries[i].length = i * 500
             assert meta_array.entries[i].offset == i * 1000
             assert meta_array.entries[i].length == i * 500
-        
-        # Test TacoAppendEntry
-        append_entry = TacoAppendEntry()
-        src_path = b"/path/to/source.txt"
-        arc_name = b"archive_name.txt"
-        append_entry.src_path = src_path
-        append_entry.arc_name = arc_name
-        assert append_entry.src_path == src_path
-        assert append_entry.arc_name == arc_name
     
     def test_check_result_success(self):
         """Test _check_result with success code."""
@@ -113,20 +103,6 @@ class TestBindings:
         assert entries[0] == (1000, 2000)
         assert entries[1] == (3000, 4000)
     
-    def test_prepare_append_entries(self):
-        """Test _prepare_append_entries function."""
-        from tacozip.bindings import _prepare_append_entries
-        
-        entries = [("/path/to/file1.txt", "file1.txt"), ("/path/to/file2.txt", "file2.txt")]
-        entry_array, byte_strings = _prepare_append_entries(entries)
-        
-        assert len(entry_array) == 2
-        assert len(byte_strings) == 4  # 2 entries * 2 strings each
-        
-        # Test error with empty entries
-        with pytest.raises(ValueError):
-            _prepare_append_entries([])
-    
     @patch('tacozip.bindings._lib')
     def test_create_function(self, mock_lib):
         """Test create function."""
@@ -166,27 +142,68 @@ class TestBindings:
         mock_lib.tacozip_update_header.assert_called_once()
     
     @patch('tacozip.bindings._lib')
-    def test_append_files_function(self, mock_lib):
-        """Test append_files function."""
-        mock_lib.tacozip_append_files.return_value = config.TACOZ_OK
+    def test_detect_format_function(self, mock_lib):
+        """Test detect_format function."""
+        mock_lib.tacozip_detect_format.return_value = config.TACOZIP_FORMAT_ZIP32
         
-        entries = [("/path/to/file1.txt", "file1.txt"), ("/path/to/file2.txt", "file2.txt")]
-        bindings.append_files("test.zip", entries)
+        result = bindings.detect_format("test.zip")
         
-        # Verify function was called
-        mock_lib.tacozip_append_files.assert_called_once()
+        assert result == config.TACOZIP_FORMAT_ZIP32
+        mock_lib.tacozip_detect_format.assert_called_once()
+        args = mock_lib.tacozip_detect_format.call_args[0]
+        assert args[0] == b"test.zip"
     
     @patch('tacozip.bindings._lib')
-    def test_append_files_error(self, mock_lib):
-        """Test append_files function with error."""
-        mock_lib.tacozip_append_files.return_value = config.TACOZ_ERR_EXISTS
+    def test_detect_format_zip64(self, mock_lib):
+        """Test detect_format with ZIP64 result."""
+        mock_lib.tacozip_detect_format.return_value = config.TACOZIP_FORMAT_ZIP64
         
-        entries = [("/path/to/file1.txt", "file1.txt")]
-        with pytest.raises(exceptions.TacozipError) as exc_info:
-            bindings.append_files("test.zip", entries)
+        result = bindings.detect_format("test_large.zip")
         
-        assert exc_info.value.code == config.TACOZ_ERR_EXISTS
+        assert result == config.TACOZIP_FORMAT_ZIP64
+    
+    @patch('tacozip.bindings._lib')
+    def test_detect_format_unknown(self, mock_lib):
+        """Test detect_format with unknown format."""
+        mock_lib.tacozip_detect_format.return_value = config.TACOZIP_FORMAT_UNKNOWN
         
+        result = bindings.detect_format("invalid.txt")
+        
+        assert result == config.TACOZIP_FORMAT_UNKNOWN
+    
+    @patch('tacozip.bindings._lib')
+    def test_validate_function(self, mock_lib):
+        """Test validate function with default level."""
+        mock_lib.tacozip_validate.return_value = config.TACOZ_VALID
+        
+        result = bindings.validate("test.taco")
+        
+        assert result == config.TACOZ_VALID
+        mock_lib.tacozip_validate.assert_called_once()
+        args = mock_lib.tacozip_validate.call_args[0]
+        assert args[0] == b"test.taco"
+        assert args[1] == config.TACOZIP_VALIDATE_NORMAL  # Default level
+    
+    @patch('tacozip.bindings._lib')
+    def test_validate_with_level(self, mock_lib):
+        """Test validate function with specific level."""
+        mock_lib.tacozip_validate.return_value = config.TACOZ_VALID
+        
+        result = bindings.validate("test.taco", config.TACOZIP_VALIDATE_DEEP)
+        
+        assert result == config.TACOZ_VALID
+        args = mock_lib.tacozip_validate.call_args[0]
+        assert args[1] == config.TACOZIP_VALIDATE_DEEP
+    
+    @patch('tacozip.bindings._lib')
+    def test_validate_invalid_result(self, mock_lib):
+        """Test validate function with invalid result."""
+        mock_lib.tacozip_validate.return_value = config.TACOZ_INVALID_NO_TACO
+        
+        result = bindings.validate("regular.zip")
+        
+        assert result == config.TACOZ_INVALID_NO_TACO
+    
     @patch('tacozip.bindings._lib')
     def test_get_library_version(self, mock_lib):
         """Test get_library_version function."""
@@ -266,8 +283,9 @@ class TestReadHeaderBytes:
         args = mock_lib.tacozip_read_header.call_args[0]
         assert args[0] == b"test.zip"
         
-        # Verify buffer function was NOT called
-        assert not mock_lib.tacozip_parse_header.called
+        # Verify buffer function was NOT called if it exists
+        if hasattr(mock_lib, 'tacozip_parse_header'):
+            assert not mock_lib.tacozip_parse_header.called
     
     @patch('tacozip.bindings._lib')
     def test_read_header_from_bytes_buffer(self, mock_lib):

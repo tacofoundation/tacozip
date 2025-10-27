@@ -53,10 +53,13 @@ def copy_windows_dependencies(package_dir):
     deps_path = Path("C:/deps/bin")
     
     if not deps_path.exists():
-        print(f"prebuild.py: Warning - Dependencies path not found: {deps_path}")
+        deps_path = Path("C:/deps/lib")
+    
+    if not deps_path.exists():
+        print(f"prebuild.py: Warning - No C:/deps found")
         return
     
-    dlls_to_copy = ["zlib1.dll", "zip.dll"]
+    dlls_to_copy = ["zlib1.dll", "zip.dll", "zlib.dll"]
     copied_count = 0
     
     for dll_name in dlls_to_copy:
@@ -135,6 +138,18 @@ def main():
                 print(f"prebuild.py: Found existing library: {src}")
                 print(f"prebuild.py: Copying to: {dest_path}")
                 shutil.copy2(src, dest_path)
+                copy_windows_dependencies(package_dir)
+                
+                # Verification
+                print(f"prebuild.py: Final verification...")
+                for item in package_dir.iterdir():
+                    if item.is_file():
+                        print(f"  - {item.name} ({item.stat().st_size} bytes)")
+                
+                if not dest_path.exists():
+                    print(f"prebuild.py: FATAL - Library not at {dest_path}")
+                    return 1
+                
                 return 0
     
     # Build the library
@@ -215,6 +230,17 @@ def main():
                 # Copy Windows dependencies after successful build
                 copy_windows_dependencies(package_dir)
                 
+                # VERIFICATION FINAL
+                print(f"prebuild.py: Final verification...")
+                for item in package_dir.iterdir():
+                    if item.is_file():
+                        print(f"  - {item.name} ({item.stat().st_size} bytes)")
+                
+                if not dest_path.exists():
+                    print(f"prebuild.py: FATAL - Library not at {dest_path}")
+                    return 1
+                
+                print(f"prebuild.py: SUCCESS - Library at {dest_path}")
                 return 0
         
         print("prebuild.py: ERROR: No library found after build")
@@ -222,6 +248,8 @@ def main():
         
     except Exception as e:
         print(f"prebuild.py: Exception during build: {e}")
+        import traceback
+        traceback.print_exc()
         return 1
 
 if __name__ == "__main__":

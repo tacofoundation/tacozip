@@ -406,7 +406,7 @@ int tacozip_validate(const char *zip_path, tacozip_validate_level_t level) {
   }
 
   /* Check 6: Parse and validate metadata count */
-  taco_meta_array_t meta;
+  taco_meta_array_t meta = {0};
   int rc = parse_header_payload(header + 41, &meta);
   if (rc != TACOZ_OK || meta.count > TACO_HEADER_MAX_ENTRIES) {
     fclose(fp);
@@ -664,7 +664,7 @@ static int find_cd_and_update_crc32(FILE *fp, uint32_t new_crc32) {
   for (long i = bytes_read - ZIP64_EOCD_LOCATOR_SIZE; i >= 0; i--) {
     if (read_le32(buffer + i) == ZIP64_EOCD_LOCATOR_SIGNATURE) {
       TACOZIP_DEBUG("Found ZIP64 EOCD Locator at offset %lld",
-                    search_start + i);
+                    (unsigned long long)search_start + i);
       
       // ZIP64 EOCD Locator structure:
       // Offset 0-3:   Signature (0x07064b50)
@@ -724,7 +724,7 @@ static int find_cd_and_update_crc32(FILE *fp, uint32_t new_crc32) {
   if (!found_cd) {
     for (long i = bytes_read - EOCD_MIN_SIZE; i >= 0; i--) {
       if (read_le32(buffer + i) == ZIP_EOCD_SIGNATURE) {
-        TACOZIP_DEBUG("Found ZIP32 EOCD at offset %lld", search_start + i);
+        TACOZIP_DEBUG("Found ZIP32 EOCD at offset %lld", (long long)(search_start + i));
         
         // Regular EOCD structure:
         // Offset 0-3:   Signature (0x06054b50)

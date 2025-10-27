@@ -11,7 +11,7 @@ cmake_minimum_required(VERSION 3.15)
 #   cmake --install --preset release
 # -----------------------------------------------------------------------------
 project(tacozip
-  VERSION 0.11.0
+  VERSION 0.11.2
   LANGUAGES C
   DESCRIPTION "Regular ZIP (STORE-only) writer with libzip backend and TACO Header at byte 0"
 )

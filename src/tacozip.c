@@ -634,8 +634,8 @@ static int find_cd_and_update_crc32(FILE *fp, uint32_t new_crc32) {
     return TACOZ_ERR_INVALID_HEADER;
 
   // Search from end of file, accounting for possible ZIP comment
-  size_t search_size = (file_size > MAX_EOCD_SEARCH) 
-                       ? MAX_EOCD_SEARCH 
+  size_t search_size = (file_size > MAX_EOCD_SEARCH)
+                       ? MAX_EOCD_SEARCH
                        : (size_t)file_size;
 
   unsigned char *buffer = malloc(search_size);
@@ -663,7 +663,7 @@ static int find_cd_and_update_crc32(FILE *fp, uint32_t new_crc32) {
   // This is the most robust way to detect ZIP64
   for (long i = bytes_read - ZIP64_EOCD_LOCATOR_SIZE; i >= 0; i--) {
     if (read_le32(buffer + i) == ZIP64_EOCD_LOCATOR_SIGNATURE) {
-      TACOZIP_DEBUG("Found ZIP64 EOCD Locator at offset %lld", 
+      TACOZIP_DEBUG("Found ZIP64 EOCD Locator at offset %lld",
                     search_start + i);
       
       // ZIP64 EOCD Locator structure:
@@ -674,12 +674,12 @@ static int find_cd_and_update_crc32(FILE *fp, uint32_t new_crc32) {
       
       uint64_t zip64_eocd_offset = read_le64(buffer + i + 8);
       
-      TACOZIP_DEBUG("ZIP64 EOCD offset: %llu", 
+      TACOZIP_DEBUG("ZIP64 EOCD offset: %llu",
                     (unsigned long long)zip64_eocd_offset);
       
       // Step 2: Read the ZIP64 EOCD Record
       unsigned char zip64_eocd[ZIP64_EOCD_MIN_SIZE];
-      if (fseeko(fp, (off_t)zip64_eocd_offset, SEEK_SET) != 0) {
+      if (fseeko(fp, (off_t)zip64_eocd_soffset, SEEK_SET) != 0) {
         free(buffer);
         return TACOZ_ERR_IO;
       }

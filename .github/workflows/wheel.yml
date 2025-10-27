@@ -8,8 +8,7 @@ name: Python wheels
 
 on:
   push:
-    branches:
-      - main
+    tags: ['v*.*.*']
 
 # =============================================================================
 # Environment Configuration
@@ -44,6 +43,7 @@ jobs:
           clean: true
 
       - name: Display build versions
+        shell: bash
         run: |
           echo "============================================="
           echo "Building with fixed versions:"
@@ -60,6 +60,7 @@ jobs:
 
       - name: Fix newlines for Apple Clang compatibility
         if: runner.os == 'macOS'
+        shell: bash
         run: |
           echo "Adding newlines to source files for Apple Clang..."
           echo "" >> include/tacozip.h
@@ -81,6 +82,7 @@ jobs:
 
       - name: Verify ARM64 container compatibility
         if: runner.os == 'Linux'
+        shell: bash
         run: |
           echo "Testing ARM64 container compatibility..."
           docker run --rm --platform linux/arm64 quay.io/pypa/manylinux2014_aarch64:2025.04.19-1 uname -m
@@ -111,28 +113,12 @@ jobs:
           CIBW_REPAIR_WHEEL_COMMAND_LINUX: "auditwheel repair -w {dest_dir} {wheel}"
           
           # Build minimal libzip from GitHub source (avoids SSL issues)
-          CIBW_BEFORE_BUILD_LINUX: >
+          CIBW_BEFORE_BUILD_LINUX: |
             echo "=== Linux: Building libzip v${{ env.LIBZIP_VERSION }} from source ===" &&
             python -m pip install cmake ninja &&
-            curl -L https://github.com/nih-at/libzip/archive/refs/tags/v${{ env.LIBZIP_VERSION }}.tar.gz 
-            -o libzip-${{ env.LIBZIP_VERSION }}.tar.gz &&
+            curl -L https://github.com/nih-at/libzip/archive/refs/tags/v${{ env.LIBZIP_VERSION }}.tar.gz -o libzip-${{ env.LIBZIP_VERSION }}.tar.gz &&
             tar -xzf libzip-${{ env.LIBZIP_VERSION }}.tar.gz &&
-            cmake -S libzip-${{ env.LIBZIP_VERSION }} -B build-libzip
-            -DCMAKE_INSTALL_PREFIX="${{ env.LIBZIP_INSTALL_PREFIX_UNIX }}"
-            -DCMAKE_BUILD_TYPE=${{ env.CMAKE_BUILD_TYPE }}
-            -DBUILD_SHARED_LIBS=ON
-            -DENABLE_COMMONCRYPTO=OFF
-            -DENABLE_GNUTLS=OFF
-            -DENABLE_MBEDTLS=OFF
-            -DENABLE_OPENSSL=OFF
-            -DENABLE_WINDOWS_CRYPTO=OFF
-            -DENABLE_BZIP2=OFF
-            -DENABLE_LZMA=OFF
-            -DENABLE_ZSTD=OFF
-            -DBUILD_TOOLS=OFF
-            -DBUILD_REGRESS=OFF
-            -DBUILD_EXAMPLES=OFF
-            -DBUILD_DOC=OFF &&
+            cmake -S libzip-${{ env.LIBZIP_VERSION }} -B build-libzip -DCMAKE_INSTALL_PREFIX="${{ env.LIBZIP_INSTALL_PREFIX_UNIX }}" -DCMAKE_BUILD_TYPE=${{ env.CMAKE_BUILD_TYPE }} -DBUILD_SHARED_LIBS=ON -DENABLE_COMMONCRYPTO=OFF -DENABLE_GNUTLS=OFF -DENABLE_MBEDTLS=OFF -DENABLE_OPENSSL=OFF -DENABLE_WINDOWS_CRYPTO=OFF -DENABLE_BZIP2=OFF -DENABLE_LZMA=OFF -DENABLE_ZSTD=OFF -DBUILD_TOOLS=OFF -DBUILD_REGRESS=OFF -DBUILD_EXAMPLES=OFF -DBUILD_DOC=OFF &&
             cmake --build build-libzip -j &&
             cmake --install build-libzip &&
             echo "=== Linux: Building tacozip native library ===" &&
@@ -145,34 +131,15 @@ jobs:
           CIBW_ENVIRONMENT_MACOS: |
             MACOSX_DEPLOYMENT_TARGET=11.0
           CIBW_REPAIR_WHEEL_COMMAND_MACOS: |
-            bash -exc "python -m pip install delocate && 
-            delocate-wheel --require-archs {delocate_archs} -w {dest_dir} -v {wheel}"
+            bash -exc "python -m pip install delocate && delocate-wheel --require-archs {delocate_archs} -w {dest_dir} -v {wheel}"
           
           # Build universal libzip for both Intel and Apple Silicon
-          CIBW_BEFORE_BUILD_MACOS: >
+          CIBW_BEFORE_BUILD_MACOS: |
             echo "=== macOS: Building universal libzip v${{ env.LIBZIP_VERSION }} ===" &&
             python -m pip install cmake ninja &&
-            curl -L https://github.com/nih-at/libzip/archive/refs/tags/v${{ env.LIBZIP_VERSION }}.tar.gz 
-            -o libzip-${{ env.LIBZIP_VERSION }}.tar.gz &&
+            curl -L https://github.com/nih-at/libzip/archive/refs/tags/v${{ env.LIBZIP_VERSION }}.tar.gz -o libzip-${{ env.LIBZIP_VERSION }}.tar.gz &&
             tar -xzf libzip-${{ env.LIBZIP_VERSION }}.tar.gz &&
-            cmake -S libzip-${{ env.LIBZIP_VERSION }} -B build-libzip
-            -DCMAKE_INSTALL_PREFIX="${{ env.LIBZIP_INSTALL_PREFIX_UNIX }}"
-            -DCMAKE_BUILD_TYPE=${{ env.CMAKE_BUILD_TYPE }}
-            -DBUILD_SHARED_LIBS=ON
-            -DCMAKE_OSX_DEPLOYMENT_TARGET=11.0
-            -DCMAKE_OSX_ARCHITECTURES="x86_64;arm64"
-            -DENABLE_COMMONCRYPTO=OFF
-            -DENABLE_GNUTLS=OFF
-            -DENABLE_MBEDTLS=OFF
-            -DENABLE_OPENSSL=OFF
-            -DENABLE_WINDOWS_CRYPTO=OFF
-            -DENABLE_BZIP2=OFF
-            -DENABLE_LZMA=OFF
-            -DENABLE_ZSTD=OFF
-            -DBUILD_TOOLS=OFF
-            -DBUILD_REGRESS=OFF
-            -DBUILD_EXAMPLES=OFF
-            -DBUILD_DOC=OFF &&
+            cmake -S libzip-${{ env.LIBZIP_VERSION }} -B build-libzip -DCMAKE_INSTALL_PREFIX="${{ env.LIBZIP_INSTALL_PREFIX_UNIX }}" -DCMAKE_BUILD_TYPE=${{ env.CMAKE_BUILD_TYPE }} -DBUILD_SHARED_LIBS=ON -DCMAKE_OSX_DEPLOYMENT_TARGET=11.0 -DCMAKE_OSX_ARCHITECTURES="x86_64;arm64" -DENABLE_COMMONCRYPTO=OFF -DENABLE_GNUTLS=OFF -DENABLE_MBEDTLS=OFF -DENABLE_OPENSSL=OFF -DENABLE_WINDOWS_CRYPTO=OFF -DENABLE_BZIP2=OFF -DENABLE_LZMA=OFF -DENABLE_ZSTD=OFF -DBUILD_TOOLS=OFF -DBUILD_REGRESS=OFF -DBUILD_EXAMPLES=OFF -DBUILD_DOC=OFF &&
             cmake --build build-libzip -j &&
             sudo cmake --install build-libzip &&
             echo "=== macOS: Building tacozip native library ===" &&
@@ -184,38 +151,18 @@ jobs:
           CIBW_ARCHS_WINDOWS: "AMD64"
           
           # Build both zlib and libzip dependencies from source
-          CIBW_BEFORE_BUILD_WINDOWS: >
+          CIBW_BEFORE_BUILD_WINDOWS: |
             echo "=== Windows: Building zlib v${{ env.ZLIB_VERSION }} dependency ===" &&
             python -m pip install cmake ninja &&
-            curl -L https://github.com/madler/zlib/archive/refs/tags/v${{ env.ZLIB_VERSION }}.zip 
-            -o zlib-${{ env.ZLIB_VERSION }}.zip &&
+            curl -L https://github.com/madler/zlib/archive/refs/tags/v${{ env.ZLIB_VERSION }}.zip -o zlib-${{ env.ZLIB_VERSION }}.zip &&
             powershell -Command "Expand-Archive zlib-${{ env.ZLIB_VERSION }}.zip -DestinationPath ." &&
-            cmake -S zlib-${{ env.ZLIB_VERSION }} -B build-zlib 
-            -DCMAKE_INSTALL_PREFIX="${{ env.LIBZIP_INSTALL_PREFIX_WIN }}" 
-            -DBUILD_SHARED_LIBS=ON &&
+            cmake -S zlib-${{ env.ZLIB_VERSION }} -B build-zlib -DCMAKE_INSTALL_PREFIX="${{ env.LIBZIP_INSTALL_PREFIX_WIN }}" -DBUILD_SHARED_LIBS=ON &&
             cmake --build build-zlib --config ${{ env.CMAKE_BUILD_TYPE }} &&
             cmake --install build-zlib &&
             echo "=== Windows: Building libzip v${{ env.LIBZIP_VERSION }} ===" &&
-            curl -L https://github.com/nih-at/libzip/archive/refs/tags/v${{ env.LIBZIP_VERSION }}.zip 
-            -o libzip-${{ env.LIBZIP_VERSION }}.zip &&
+            curl -L https://github.com/nih-at/libzip/archive/refs/tags/v${{ env.LIBZIP_VERSION }}.zip -o libzip-${{ env.LIBZIP_VERSION }}.zip &&
             powershell -Command "Expand-Archive libzip-${{ env.LIBZIP_VERSION }}.zip -DestinationPath ." &&
-            cmake -S libzip-${{ env.LIBZIP_VERSION }} -B build-libzip
-            -DCMAKE_INSTALL_PREFIX="${{ env.LIBZIP_INSTALL_PREFIX_WIN }}"
-            -DCMAKE_BUILD_TYPE=${{ env.CMAKE_BUILD_TYPE }}
-            -DBUILD_SHARED_LIBS=ON
-            -DCMAKE_PREFIX_PATH="${{ env.LIBZIP_INSTALL_PREFIX_WIN }}"
-            -DENABLE_COMMONCRYPTO=OFF
-            -DENABLE_GNUTLS=OFF
-            -DENABLE_MBEDTLS=OFF
-            -DENABLE_OPENSSL=OFF
-            -DENABLE_WINDOWS_CRYPTO=OFF
-            -DENABLE_BZIP2=OFF
-            -DENABLE_LZMA=OFF
-            -DENABLE_ZSTD=OFF
-            -DBUILD_TOOLS=OFF
-            -DBUILD_REGRESS=OFF
-            -DBUILD_EXAMPLES=OFF
-            -DBUILD_DOC=OFF &&
+            cmake -S libzip-${{ env.LIBZIP_VERSION }} -B build-libzip -DCMAKE_INSTALL_PREFIX="${{ env.LIBZIP_INSTALL_PREFIX_WIN }}" -DCMAKE_BUILD_TYPE=${{ env.CMAKE_BUILD_TYPE }} -DBUILD_SHARED_LIBS=ON -DCMAKE_PREFIX_PATH="${{ env.LIBZIP_INSTALL_PREFIX_WIN }}" -DENABLE_COMMONCRYPTO=OFF -DENABLE_GNUTLS=OFF -DENABLE_MBEDTLS=OFF -DENABLE_OPENSSL=OFF -DENABLE_WINDOWS_CRYPTO=OFF -DENABLE_BZIP2=OFF -DENABLE_LZMA=OFF -DENABLE_ZSTD=OFF -DBUILD_TOOLS=OFF -DBUILD_REGRESS=OFF -DBUILD_EXAMPLES=OFF -DBUILD_DOC=OFF &&
             cmake --build build-libzip --config ${{ env.CMAKE_BUILD_TYPE }} &&
             cmake --install build-libzip &&
             echo "=== Windows: Building tacozip native library with DLL bundling ===" &&
@@ -238,7 +185,7 @@ jobs:
           cibuildwheel clients/python --output-dir wheelhouse
           
           echo "============================================="
-          echo "✓ Wheels successfully built for ${{ matrix.os }}:"
+          echo "✅ Wheels successfully built for ${{ matrix.os }}:"
           ls -lh wheelhouse
           echo "============================================="
 
@@ -296,6 +243,7 @@ jobs:
           merge-multiple: true
 
       - name: Copy source distribution to dist
+        shell: bash
         run: |
           cp clients/python/dist/*.tar.gz dist/
 
@@ -324,6 +272,7 @@ jobs:
           print-hash: true
 
       - name: Create release summary
+        shell: bash
         run: |
           echo "## 🚀 PyPI Release Summary" >> $GITHUB_STEP_SUMMARY
           echo "Successfully published wheels built with:" >> $GITHUB_STEP_SUMMARY

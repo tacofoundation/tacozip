@@ -679,7 +679,7 @@ static int find_cd_and_update_crc32(FILE *fp, uint32_t new_crc32) {
       
       // Step 2: Read the ZIP64 EOCD Record
       unsigned char zip64_eocd[ZIP64_EOCD_MIN_SIZE];
-      if (fseeko(fp, (off_t)zip64_eocd_soffset, SEEK_SET) != 0) {
+      if (fseeko(fp, (off_t)zip64_eocd_offset, SEEK_SET) != 0) {
         free(buffer);
         return TACOZ_ERR_IO;
       }

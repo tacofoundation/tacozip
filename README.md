@@ -1,5 +1,6 @@
 # tacozip
 
+[![Ask DeepWiki](https://deepwiki.com/badge.svg)](https://deepwiki.com/tacofoundation/tacozip)
 [![PyPI](https://img.shields.io/pypi/v/tacozip.svg)](https://pypi.python.org/pypi/tacozip)
 [![PyPI - Wheel](https://img.shields.io/pypi/wheel/tacozip)](https://pypi.org/project/tacozip/#files)
 [![Tests](https://github.com/tacofoundation/tacozip/actions/workflows/test_py.yml/badge.svg)](https://github.com/tacofoundation/tacozip/actions/workflows/test_py.yml)

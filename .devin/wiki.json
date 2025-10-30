@@ -1,0 +1,301 @@
+{
+  "repo_notes": [
+    {
+      "content": ""
+    }
+  ],
+  "pages": [
+    {
+      "title": "Overview",
+      "purpose": "Introduce tacozip, its purpose as a STORE-only ZIP writer with custom TACO Header, and provide a high-level architectural overview of the C core and Python client.",
+      "page_notes": [
+        {
+          "content": ""
+        }
+      ]
+    },
+    {
+      "title": "Getting Started",
+      "purpose": "Guide users through installation and basic usage examples for both Python and C interfaces",
+      "page_notes": [
+        {
+          "content": ""
+        }
+      ]
+    },
+    {
+      "title": "Installation",
+      "purpose": "Detailed installation instructions for Python (via pip) and building the C library from source",
+      "parent": "Getting Started",
+      "page_notes": [
+        {
+          "content": ""
+        }
+      ]
+    },
+    {
+      "title": "Quick Start Examples",
+      "purpose": "Provide practical examples of creating archives, reading headers, appending files, and updating metadata",
+      "parent": "Getting Started",
+      "page_notes": [
+        {
+          "content": ""
+        }
+      ]
+    },
+    {
+      "title": "TACO Header Format",
+      "purpose": "Comprehensive documentation of the custom TACO Header structure, its purpose, physical layout, and design constraints",
+      "page_notes": [
+        {
+          "content": ""
+        }
+      ]
+    },
+    {
+      "title": "Header Structure",
+      "purpose": "Detailed byte-level specification of the 165-byte TACO Header including LFH, filename, and payload format",
+      "parent": "TACO Header Format",
+      "page_notes": [
+        {
+          "content": ""
+        }
+      ]
+    },
+    {
+      "title": "Metadata Entries",
+      "purpose": "Explain the 7-entry metadata array structure, offset/length pairs, and usage patterns",
+      "parent": "TACO Header Format",
+      "page_notes": [
+        {
+          "content": ""
+        }
+      ]
+    },
+    {
+      "title": "Design Rationale",
+      "purpose": "Explain why the header is at byte 0, the benefits for HTTP range requests and cloud storage, and the STORE-only constraint",
+      "parent": "TACO Header Format",
+      "page_notes": [
+        {
+          "content": ""
+        }
+      ]
+    },
+    {
+      "title": "C Library Reference",
+      "purpose": "Complete documentation of the native C library including API functions, build system, and implementation details",
+      "page_notes": [
+        {
+          "content": ""
+        }
+      ]
+    },
+    {
+      "title": "C API Functions",
+      "purpose": "Document all public C functions: tacozip_create, tacozip_read_header, tacozip_update_header, tacozip_append_files, tacozip_trim_from",
+      "parent": "C Library Reference",
+      "page_notes": [
+        {
+          "content": ""
+        }
+      ]
+    },
+    {
+      "title": "Implementation Architecture",
+      "purpose": "Explain internal architecture: libzip backend usage, direct file manipulation strategies, CRC32 handling, and optimization techniques",
+      "parent": "C Library Reference",
+      "page_notes": [
+        {
+          "content": ""
+        }
+      ]
+    },
+    {
+      "title": "Build Configuration",
+      "purpose": "Document CMake build system, configuration options, feature detection, dependencies (libzip, zlib), and cross-platform support",
+      "parent": "C Library Reference",
+      "page_notes": [
+        {
+          "content": ""
+        }
+      ]
+    },
+    {
+      "title": "Error Handling",
+      "purpose": "Document error codes, return values, and error handling patterns in the C API",
+      "parent": "C Library Reference",
+      "page_notes": [
+        {
+          "content": ""
+        }
+      ]
+    },
+    {
+      "title": "Python Client",
+      "purpose": "Complete documentation of the Python client including API, bindings implementation, and internal modules",
+      "page_notes": [
+        {
+          "content": ""
+        }
+      ]
+    },
+    {
+      "title": "Python API Reference",
+      "purpose": "Document the public Python API: create, read_header, update_header, append_files, trim_from, and utility functions",
+      "parent": "Python Client",
+      "page_notes": [
+        {
+          "content": ""
+        }
+      ]
+    },
+    {
+      "title": "Bindings Implementation",
+      "purpose": "Explain the ctypes FFI layer, data marshaling, structure definitions (TacoMetaEntry, TacoMetaArray), and memory management",
+      "parent": "Python Client",
+      "page_notes": [
+        {
+          "content": ""
+        }
+      ]
+    },
+    {
+      "title": "Library Loading",
+      "purpose": "Document the dynamic library loading mechanism, platform detection, and self-check functionality",
+      "parent": "Python Client",
+      "page_notes": [
+        {
+          "content": ""
+        }
+      ]
+    },
+    {
+      "title": "Configuration and Constants",
+      "purpose": "Document error codes, header constants, and platform-specific configuration",
+      "parent": "Python Client",
+      "page_notes": [
+        {
+          "content": ""
+        }
+      ]
+    },
+    {
+      "title": "Exception Handling",
+      "purpose": "Document the Python exception hierarchy: TacozipError, TacozipIOError, TacozipValidationError, TacozipLibraryError",
+      "parent": "Python Client",
+      "page_notes": [
+        {
+          "content": ""
+        }
+      ]
+    },
+    {
+      "title": "Packaging and Distribution",
+      "purpose": "Explain Python package structure, pyproject.toml configuration, and wheel building strategy",
+      "parent": "Python Client",
+      "page_notes": [
+        {
+          "content": ""
+        }
+      ]
+    },
+    {
+      "title": "Development Guide",
+      "purpose": "Comprehensive guide for contributors including building, testing, and contribution workflow",
+      "page_notes": [
+        {
+          "content": ""
+        }
+      ]
+    },
+    {
+      "title": "Building from Source",
+      "purpose": "Step-by-step instructions for building the C library and Python client locally, including dependency installation",
+      "parent": "Development Guide",
+      "page_notes": [
+        {
+          "content": ""
+        }
+      ]
+    },
+    {
+      "title": "Testing",
+      "purpose": "Explain test structure, fixtures, mocking strategy, running tests locally, and coverage requirements",
+      "parent": "Development Guide",
+      "page_notes": [
+        {
+          "content": ""
+        }
+      ]
+    },
+    {
+      "title": "Contributing Guidelines",
+      "purpose": "Code style, commit conventions, PR process, and contribution workflow",
+      "parent": "Development Guide",
+      "page_notes": [
+        {
+          "content": ""
+        }
+      ]
+    },
+    {
+      "title": "CI/CD Pipeline",
+      "purpose": "Documentation of the automated build, test, and release infrastructure",
+      "page_notes": [
+        {
+          "content": ""
+        }
+      ]
+    },
+    {
+      "title": "Wheel Building Workflow",
+      "purpose": "Detailed explanation of the multi-platform wheel building process: Linux (x86_64/ARM64), macOS (universal2), Windows (AMD64)",
+      "parent": "CI/CD Pipeline",
+      "page_notes": [
+        {
+          "content": ""
+        }
+      ]
+    },
+    {
+      "title": "Testing Pipeline",
+      "purpose": "Explain the automated testing workflow, coverage reporting, and quality gates",
+      "parent": "CI/CD Pipeline",
+      "page_notes": [
+        {
+          "content": ""
+        }
+      ]
+    },
+    {
+      "title": "Release Process",
+      "purpose": "Document the release workflow: version tagging, PyPI publication, and artifact management",
+      "parent": "CI/CD Pipeline",
+      "page_notes": [
+        {
+          "content": ""
+        }
+      ]
+    },
+    {
+      "title": "Advanced Topics",
+      "purpose": "Cover advanced usage patterns, optimization techniques, and edge cases",
+      "page_notes": [
+        {
+          "content": ""
+        }
+      ]
+    },
+    {
+      "title": "Memory Management",
+      "purpose": "Explain memory management strategies in both C and Python layers, including ctypes lifetime management",
+      "parent": "Advanced Topics",
+      "page_notes": [
+        {
+          "content": ""
+        }
+      ]
+    }
+  ]
+}

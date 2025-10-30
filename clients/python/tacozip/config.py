@@ -18,7 +18,7 @@ ERROR_MESSAGES = {
     TACOZ_ERR_PARAM: "Invalid argument(s)",
     TACOZ_ERR_NOT_FOUND: "File not found in archive",
     TACOZ_ERR_EXISTS: "File already exists in archive",
-    TACOZ_ERR_TOO_LARGE: "Archive too large"
+    TACOZ_ERR_TOO_LARGE: "Archive too large",
 }
 
 # Format detection constants
@@ -27,9 +27,9 @@ TACOZIP_FORMAT_ZIP32 = 1
 TACOZIP_FORMAT_ZIP64 = 2
 
 # Validation levels
-TACOZIP_VALIDATE_QUICK = 0   # Level 1: Header checks onlyS
+TACOZIP_VALIDATE_QUICK = 0  # Level 1: Header checks onlyS
 TACOZIP_VALIDATE_NORMAL = 1  # Level 1+2: + Structure checks
-TACOZIP_VALIDATE_DEEP = 2    # All levels: + CRC32 validation
+TACOZIP_VALIDATE_DEEP = 2  # All levels: + CRC32 validation
 
 # Validation result codes
 TACOZ_VALID = 0

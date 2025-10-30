@@ -18,7 +18,7 @@ def _load_shared():
         names = ["libtacozip.so"]
 
     here = Path(__file__).parent
-    
+
     # First try to find library in the package directory
     for n in names:
         p = here / n
@@ -38,9 +38,9 @@ def _load_shared():
         print(f"  Package directory {here} does not exist!")
 
     raise TacozipLibraryError(
-        -1, 
+        -1,
         f"Native library not found. Searched for: {names}. "
-        f"Available files in package: {[f.name for f in here.iterdir() if here.exists()]}"
+        f"Available files in package: {[f.name for f in here.iterdir() if here.exists()]}",
     )
 
 
@@ -56,23 +56,23 @@ def get_library():
 def self_check():
     """Perform self-check of the native library."""
     lib = get_library()
-    
+
     required_functions = [
-        'tacozip_get_version',
-        'tacozip_create',
-        'tacozip_read_header',
-        'tacozip_update_header',
-        'tacozip_parse_header',
-        'tacozip_serialize_header',
-        'tacozip_detect_format',
-        'tacozip_validate',
+        "tacozip_get_version",
+        "tacozip_create",
+        "tacozip_read_header",
+        "tacozip_update_header",
+        "tacozip_parse_header",
+        "tacozip_serialize_header",
+        "tacozip_detect_format",
+        "tacozip_validate",
     ]
-    
+
     missing_functions = []
     for func_name in required_functions:
         if not hasattr(lib, func_name):
             missing_functions.append(func_name)
-    
+
     if missing_functions:
         raise TacozipLibraryError(
             -1, f"Missing functions in native library: {missing_functions}"

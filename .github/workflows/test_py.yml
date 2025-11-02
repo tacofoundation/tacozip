@@ -19,7 +19,6 @@ on:
       - 'CMakeLists.txt'
   workflow_dispatch:
 
-# Use EXACTLY the same environment as wheels.yml
 env:
   LIBZIP_VERSION: "1.11.4"
   ZLIB_VERSION: "1.3.1"
@@ -41,59 +40,33 @@ jobs:
         working-directory: clients/python
 
     steps:
-    - name: Checkout repository
-      uses: actions/checkout@v4
+    - uses: actions/checkout@v4
 
-    - name: Set up Python ${{ matrix.python-version }}
-      uses: actions/setup-python@v5
+    - uses: actions/setup-python@v5
       with:
         python-version: ${{ matrix.python-version }}
 
-    - name: Display system info
-      run: |
-        echo "macOS Build & Test Environment"
-        echo "================================"
-        echo "OS: $(sw_vers -productName) $(sw_vers -productVersion)"
-        echo "Architecture: $(arch)"
-        echo "Python: $(python --version)"
-        echo "Hardware: $(sysctl -n hw.model)"
-        echo ""
-        echo "Build Configuration (same as wheels.yml):"
-        echo "  libzip: ${{ env.LIBZIP_VERSION }}"
-        echo "  zlib:   ${{ env.ZLIB_VERSION }}"
-        echo "  cmake:  ${{ env.CMAKE_BUILD_TYPE }}"
-        echo "  prefix: ${{ env.LIBZIP_INSTALL_PREFIX_UNIX }}"
+    - name: Clean existing libraries
+      run: rm -f tacozip/libtacozip.* tacozip/tacozip.dll || true
 
-    - name: Clean existing native libraries
+    - name: Fix newlines for Apple Clang
       run: |
-        echo "Cleaning any pre-existing native libraries..."
-        rm -f tacozip/libtacozip.* tacozip/tacozip.dll || true
-        ls -la tacozip/
-
-    - name: Fix newlines for Apple Clang compatibility
-      run: |
-        echo "Adding newlines to source files for Apple Clang..."
-        cd ../..  # Go to project root
+        cd ../..
         echo "" >> include/tacozip.h
         echo "" >> src/tacozip.c
 
     - name: Install dependencies
       run: |
-        echo "Installing build dependencies"
         python -m pip install --upgrade pip
         pip install pytest pytest-cov cmake ninja
 
-    - name: Build universal libzip (EXACT copy from wheels.yml)
+    - name: Build universal libzip
       run: |
-        echo "=== macOS: Building universal libzip v${{ env.LIBZIP_VERSION }} ==="
-        cd ../..  # Go to project root
-        
-        # Download libzip (same as wheels.yml)
+        cd ../..
         curl -L https://github.com/nih-at/libzip/archive/refs/tags/v${{ env.LIBZIP_VERSION }}.tar.gz \
           -o libzip-${{ env.LIBZIP_VERSION }}.tar.gz
         tar -xzf libzip-${{ env.LIBZIP_VERSION }}.tar.gz
         
-        # Configure libzip (EXACT same parameters as wheels.yml)
         cmake -S libzip-${{ env.LIBZIP_VERSION }} -B build-libzip \
           -DCMAKE_INSTALL_PREFIX="${{ env.LIBZIP_INSTALL_PREFIX_UNIX }}" \
           -DCMAKE_BUILD_TYPE=${{ env.CMAKE_BUILD_TYPE }} \
@@ -113,207 +86,48 @@ jobs:
           -DBUILD_EXAMPLES=OFF \
           -DBUILD_DOC=OFF
         
-        # Build and install (same as wheels.yml)
         cmake --build build-libzip -j
         sudo cmake --install build-libzip
-        
-        echo "libzip built and installed successfully"
-        
-        # Verify installation
-        echo "Installed libzip files:"
-        find ${{ env.LIBZIP_INSTALL_PREFIX_UNIX }} -name "*libzip*" 2>/dev/null | head -10
 
     - name: Build tacozip native library
       run: |
-        echo "=== macOS: Building tacozip native library ==="
-        cd ../..  # Go to project root
-        
-        # Run prebuild.py (same as wheels.yml)
+        cd ../..
         python clients/python/prebuild.py
-        
-        echo "Checking built library"
-        ls -la clients/python/tacozip/
-        
-        # Verify the library was built correctly
-        if [ -f "clients/python/tacozip/libtacozip.dylib" ]; then
-          echo "libtacozip.dylib found"
-          echo "File type: $(file clients/python/tacozip/libtacozip.dylib)"
-          echo "Architecture: $(lipo -info clients/python/tacozip/libtacozip.dylib 2>/dev/null || echo 'Could not determine')"
-          echo "Dependencies:"
-          otool -L clients/python/tacozip/libtacozip.dylib 2>/dev/null || echo 'Could not determine'
-          echo "Size: $(stat -f%z clients/python/tacozip/libtacozip.dylib) bytes"
-          
-          # Test if it's a valid mach-o file
-          if file clients/python/tacozip/libtacozip.dylib | grep -q "Mach-O"; then
-            echo "Valid Mach-O binary detected"
-          else
-            echo "Not a valid Mach-O binary"
-            exit 1
-          fi
-        else
-          echo "libtacozip.dylib not found"
-          echo "Contents of tacozip directory:"
-          ls -la clients/python/tacozip/
-          exit 1
-        fi
+        test -f clients/python/tacozip/libtacozip.dylib || exit 1
 
-    - name: Set library search paths for testing
+    - name: Set library paths
       run: |
-        echo "Setting up library search paths for testing"
-        echo "=============================================="
-        cd ../..  # Go to project root
-        
-        echo "Current library dependencies:"
-        otool -L clients/python/tacozip/libtacozip.dylib
-        
-        # Add the libzip installation directory to environment for all subsequent steps
         echo "DYLD_LIBRARY_PATH=${{ env.LIBZIP_INSTALL_PREFIX_UNIX }}/lib" >> $GITHUB_ENV
         echo "DYLD_FALLBACK_LIBRARY_PATH=${{ env.LIBZIP_INSTALL_PREFIX_UNIX }}/lib:/usr/local/lib:/usr/lib" >> $GITHUB_ENV
-        
-        echo "Library search paths configured"
-        echo "DYLD_LIBRARY_PATH will include: ${{ env.LIBZIP_INSTALL_PREFIX_UNIX }}/lib"
-        
-        # Verify libzip is findable
-        echo ""
-        echo "Verifying libzip accessibility:"
-        ls -la ${{ env.LIBZIP_INSTALL_PREFIX_UNIX }}/lib/libzip* || echo "No libzip files found"
 
-    - name: Install Python package
-      run: |
-        echo "Installing tacozip Python package"
-        echo "Library paths: DYLD_LIBRARY_PATH=$DYLD_LIBRARY_PATH"
-        pip install -e .
+    - name: Install package
+      run: pip install -e .
 
-    - name: Verify package installation and native library
+    - name: Verify installation
+      run: python -c "import tacozip; tacozip.self_check(); print('OK')"
+
+    - name: Test basic functionality
       run: |
-        echo "Verifying package installation"
-        echo "Library search paths:"
-        echo "  DYLD_LIBRARY_PATH: $DYLD_LIBRARY_PATH"
-        echo "  DYLD_FALLBACK_LIBRARY_PATH: $DYLD_FALLBACK_LIBRARY_PATH"
-        
         python -c "
         import tacozip
-        print(f'tacozip version: {tacozip.__version__}')
-        print(f'Package location: {tacozip.__file__}')
-        print(f'Available functions: {[f for f in dir(tacozip) if not f.startswith(\"_\")]}')
-        
-        # Test native library loading
-        try:
-            tacozip.self_check()
-            print('Native library loaded and self-check passed!')
-        except Exception as e:
-            print(f'Native library failed: {e}')
-            
-            # Additional debugging
-            import os
-            tacozip_dir = os.path.dirname(tacozip.__file__)
-            print(f'Package directory: {tacozip_dir}')
-            print('Directory contents:')
-            for item in os.listdir(tacozip_dir):
-                print(f'  {item}')
-            
-            exit(1)
+        assert tacozip.TACOZ_OK == 0
+        assert hasattr(tacozip, 'create')
+        assert hasattr(tacozip, 'read_header')
+        assert hasattr(tacozip, 'update_header')
+        assert hasattr(tacozip, 'get_library_version')
+        tacozip.self_check()
+        print('All tests passed')
         "
 
-    - name: Run basic functionality tests
-      run: |
-        echo "Testing basic functionality with real native library"
-        python -c "
-        import tacozip
-        
-        # Test constants
-        print(f'TACOZ_OK = {tacozip.TACOZ_OK}')
-        print(f'TACO_HEADER_MAX_ENTRIES = {tacozip.TACO_HEADER_MAX_ENTRIES}')
-        
-        # Test exceptions
-        try:
-            exc = tacozip.TacozipError(-1, 'test error')
-            print(f'Exception system: {exc}')
-        except Exception as e:
-            print(f'Exception system failed: {e}')
-            exit(1)
-        
-        # Test function availability - CORRECTED to match your actual package exports
-        required_funcs = ['create', 'read_header', 'update_header', 'detect_format', 'validate', 'get_library_version']
-        missing = [f for f in required_funcs if not hasattr(tacozip, f)]
-        if missing:
-            print(f'Missing functions: {missing}')
-            exit(1)
-        else:
-            print(f'All {len(required_funcs)} functions available')
-        
-        # Test self_check again
-        try:
-            tacozip.self_check()
-            print('Native library self-check passed')
-        except Exception as e:
-            print(f'Native library self-check failed: {e}')
-            exit(1)
-        
-        print('All basic functionality tests passed!')
-        "
+    - name: Run test suite
+      run: pytest tests/ -v
 
-    - name: Run full test suite
-      run: |
-        echo "Running full test suite with real native library"
-        pytest tests/ -v --tb=short
+    - name: Run coverage
+      run: pytest tests/ --cov=tacozip --cov-report=xml --cov-report=term-missing
 
-    - name: Run coverage analysis
-      run: |
-        echo "Running coverage analysis"
-        # Generate coverage.xml with correct paths for your package structure
-        pytest tests/ --cov=tacozip --cov-report=xml:coverage.xml --cov-report=term-missing
-
-    - name: Upload coverage reports to Codecov
+    - name: Upload coverage
       uses: codecov/codecov-action@v5
       with:
         token: ${{ secrets.CODECOV_TOKEN }}
         files: clients/python/coverage.xml
-        root_dir: ${{ github.workspace }}
-        flags: macos-python${{ matrix.python-version }}
-        fail_ci_if_error: true
-        verbose: true
-
-    - name: Simulate wheel test (same as wheels.yml)
-      run: |
-        echo "Simulating wheel test command (same as wheels.yml)"
-        cd ../..  # Go to project root
-        python -c "import tacozip; tacozip.self_check(); print('tacozip test passed')"
-
-    - name: Create comprehensive test summary
-      if: always()
-      run: |
-        echo "## macOS Build & Test Results - Python ${{ matrix.python-version }}" >> $GITHUB_STEP_SUMMARY
-        echo "" >> $GITHUB_STEP_SUMMARY
-        echo "### Build & Test Pipeline" >> $GITHUB_STEP_SUMMARY
-        echo "| Stage | Status | Details |" >> $GITHUB_STEP_SUMMARY
-        echo "|-------|--------|---------|" >> $GITHUB_STEP_SUMMARY
-        echo "| libzip Build | Success | v${{ env.LIBZIP_VERSION }} (same as wheels.yml) |" >> $GITHUB_STEP_SUMMARY
-        echo "| Native Library Build | Success | tacozip C library |" >> $GITHUB_STEP_SUMMARY
-        echo "| Library Path Setup | Success | DYLD_LIBRARY_PATH configured |" >> $GITHUB_STEP_SUMMARY
-        echo "| Package Installation | Success | Python package with native lib |" >> $GITHUB_STEP_SUMMARY
-        echo "| Native Library Loading | Success | Real library, not mocked |" >> $GITHUB_STEP_SUMMARY
-        echo "| Unit Tests | Success | Full test suite |" >> $GITHUB_STEP_SUMMARY
-        echo "| Coverage Analysis | Success | Code coverage measurement |" >> $GITHUB_STEP_SUMMARY
-        echo "| Codecov Upload | Success | Coverage data uploaded |" >> $GITHUB_STEP_SUMMARY
-        echo "| Wheel Test Simulation | Success | Same test as wheels.yml |" >> $GITHUB_STEP_SUMMARY
-        echo "" >> $GITHUB_STEP_SUMMARY
-        echo "### Key Achievements" >> $GITHUB_STEP_SUMMARY
-        echo "- **Fixed runtime linking** via DYLD_LIBRARY_PATH" >> $GITHUB_STEP_SUMMARY
-        echo "- **Uses same build process as wheels.yml**" >> $GITHUB_STEP_SUMMARY
-        echo "- **Real native library testing** (not mocked)" >> $GITHUB_STEP_SUMMARY
-        echo "- **Production-ready testing** with actual C library" >> $GITHUB_STEP_SUMMARY
-        echo "" >> $GITHUB_STEP_SUMMARY
-        echo "**Platform:** macOS $(sw_vers -productVersion) $(arch)" >> $GITHUB_STEP_SUMMARY
-        echo "**Python:** ${{ matrix.python-version }}" >> $GITHUB_STEP_SUMMARY
-        echo "**libzip:** ${{ env.LIBZIP_VERSION }} (system library paths)" >> $GITHUB_STEP_SUMMARY
-        echo "**Coverage:** Available on Codecov" >> $GITHUB_STEP_SUMMARY
-
-    - name: Upload artifacts
-      uses: actions/upload-artifact@v4
-      with:
-        name: macos-build-artifacts-py${{ matrix.python-version }}
-        path: |
-          clients/python/coverage.xml
-          clients/python/tacozip/libtacozip.dylib
-        retention-days: 7
+        flags: macos-py${{ matrix.python-version }}

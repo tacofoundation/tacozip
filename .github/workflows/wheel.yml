@@ -1,13 +1,8 @@
-# =============================================================================
-# Python Wheel Build Configuration for tacozip with Fixed Versions
-# =============================================================================
-
 name: Python wheels
 
 on:
   push:
-    tags:
-      - 'v*'
+    branches: main
   
 env:
   LIBZIP_VERSION: "1.11.4"
@@ -32,27 +27,15 @@ jobs:
           fetch-depth: 0
           clean: true
 
-      - name: Display build versions
-        shell: bash
-        run: |
-          echo "============================================="
-          echo "Building with fixed versions:"
-          echo "  libzip: ${{ env.LIBZIP_VERSION }}"
-          echo "  zlib:   ${{ env.ZLIB_VERSION }}"
-          echo "  Platform: ${{ matrix.os }}"
-          echo "============================================="
-
       - name: Clean existing native libraries
         shell: bash
         run: |
-          echo "Cleaning any pre-existing native libraries..."
           rm -f clients/python/tacozip/libtacozip.* clients/python/tacozip/tacozip.dll || true
 
-      - name: Fix newlines for Apple Clang compatibility
+      - name: Fix newlines for Apple Clang
         if: runner.os == 'macOS'
         shell: bash
         run: |
-          echo "Adding newlines to source files for Apple Clang..."
           echo "" >> include/tacozip.h
           echo "" >> src/tacozip.c
 
@@ -61,33 +44,24 @@ jobs:
         with:
           python-version: '3.11'
 
-      - name: Set up QEMU for ARM64 emulation (Linux only)
+      - name: Set up QEMU for ARM64
         if: runner.os == 'Linux'
         uses: docker/setup-qemu-action@v3
         with:
           platforms: arm64
 
-      - name: Verify ARM64 container compatibility
-        if: runner.os == 'Linux'
-        shell: bash
-        run: |
-          echo "Testing ARM64 container compatibility..."
-          docker run --rm --platform linux/arm64 quay.io/pypa/manylinux2014_aarch64:2025.04.19-1 uname -m
-
       - name: Install cibuildwheel
         shell: bash
         run: |
-          echo "Installing cibuildwheel..."
           python -m pip install --upgrade pip
           pip install 'cibuildwheel==2.*'
 
-      - name: Build wheels with embedded libzip
+      - name: Build wheels
         shell: bash
         env:
-          CIBW_BUILD: "cp39-* cp310-* cp311-* cp312-* cp313-*"
+          CIBW_BUILD: "cp310-* cp311-* cp312-* cp313-*"
           CIBW_SKIP: "pp* *-win32 *-manylinux_i686"
 
-          # Linux Configuration
           CIBW_ARCHS_LINUX: "x86_64 aarch64"
           CIBW_MANYLINUX_X86_64_IMAGE: "manylinux2014"
           CIBW_MANYLINUX_AARCH64_IMAGE: "manylinux2014"
@@ -95,89 +69,61 @@ jobs:
           
           CIBW_BEFORE_BUILD_LINUX: |
             set -e
-            echo "=== Linux: Building libzip v${{ env.LIBZIP_VERSION }} from source ==="
             python -m pip install cmake ninja
-            curl -L https://github.com/nih-at/libzip/archive/refs/tags/v${{ env.LIBZIP_VERSION }}.tar.gz -o libzip-${{ env.LIBZIP_VERSION }}.tar.gz
-            tar -xzf libzip-${{ env.LIBZIP_VERSION }}.tar.gz
+            curl -L https://github.com/nih-at/libzip/archive/refs/tags/v${{ env.LIBZIP_VERSION }}.tar.gz -o libzip.tar.gz
+            tar -xzf libzip.tar.gz
             cmake -S libzip-${{ env.LIBZIP_VERSION }} -B build-libzip -DCMAKE_INSTALL_PREFIX="${{ env.LIBZIP_INSTALL_PREFIX_UNIX }}" -DCMAKE_BUILD_TYPE=${{ env.CMAKE_BUILD_TYPE }} -DBUILD_SHARED_LIBS=ON -DENABLE_COMMONCRYPTO=OFF -DENABLE_GNUTLS=OFF -DENABLE_MBEDTLS=OFF -DENABLE_OPENSSL=OFF -DENABLE_WINDOWS_CRYPTO=OFF -DENABLE_BZIP2=OFF -DENABLE_LZMA=OFF -DENABLE_ZSTD=OFF -DBUILD_TOOLS=OFF -DBUILD_REGRESS=OFF -DBUILD_EXAMPLES=OFF -DBUILD_DOC=OFF
             cmake --build build-libzip -j
             cmake --install build-libzip
-            echo "=== Linux: Building tacozip native library ==="
             python {package}/prebuild.py
 
-          # macOS Configuration
           CIBW_ARCHS_MACOS: "universal2"
           CIBW_ENVIRONMENT_MACOS: |
             MACOSX_DEPLOYMENT_TARGET=11.0
-            CFLAGS="-Wno-nullability-extension"
-            CXXFLAGS="-Wno-nullability-extension"
+            CFLAGS="-O3 -ffast-math -Wno-nullability-extension"
+            CXXFLAGS="-O3 -ffast-math -Wno-nullability-extension"
           CIBW_REPAIR_WHEEL_COMMAND_MACOS: |
             bash -exc "python -m pip install delocate && delocate-wheel --require-archs {delocate_archs} -w {dest_dir} -v {wheel}"
           
           CIBW_BEFORE_BUILD_MACOS: |
             set -e
-            echo "=== macOS: Building universal libzip v${{ env.LIBZIP_VERSION }} ==="
             python -m pip install cmake ninja
-            curl -L https://github.com/nih-at/libzip/archive/refs/tags/v${{ env.LIBZIP_VERSION }}.tar.gz -o libzip-${{ env.LIBZIP_VERSION }}.tar.gz
-            tar -xzf libzip-${{ env.LIBZIP_VERSION }}.tar.gz
-            cmake -S libzip-${{ env.LIBZIP_VERSION }} -B build-libzip -DCMAKE_INSTALL_PREFIX="${{ env.LIBZIP_INSTALL_PREFIX_UNIX }}" -DCMAKE_BUILD_TYPE=${{ env.CMAKE_BUILD_TYPE }} -DBUILD_SHARED_LIBS=ON -DCMAKE_OSX_DEPLOYMENT_TARGET=11.0 -DCMAKE_OSX_ARCHITECTURES="x86_64;arm64" -DCMAKE_C_FLAGS="-Wno-nullability-extension" -DENABLE_COMMONCRYPTO=OFF -DENABLE_GNUTLS=OFF -DENABLE_MBEDTLS=OFF -DENABLE_OPENSSL=OFF -DENABLE_WINDOWS_CRYPTO=OFF -DENABLE_BZIP2=OFF -DENABLE_LZMA=OFF -DENABLE_ZSTD=OFF -DBUILD_TOOLS=OFF -DBUILD_REGRESS=OFF -DBUILD_EXAMPLES=OFF -DBUILD_DOC=OFF
+            curl -L https://github.com/nih-at/libzip/archive/refs/tags/v${{ env.LIBZIP_VERSION }}.tar.gz -o libzip.tar.gz
+            tar -xzf libzip.tar.gz
+            cmake -S libzip-${{ env.LIBZIP_VERSION }} -B build-libzip -DCMAKE_INSTALL_PREFIX="${{ env.LIBZIP_INSTALL_PREFIX_UNIX }}" -DCMAKE_BUILD_TYPE=${{ env.CMAKE_BUILD_TYPE }} -DBUILD_SHARED_LIBS=ON -DCMAKE_OSX_DEPLOYMENT_TARGET=11.0 -DCMAKE_OSX_ARCHITECTURES="x86_64;arm64" -DCMAKE_C_FLAGS="-O3 -ffast-math -Wno-nullability-extension" -DENABLE_COMMONCRYPTO=OFF -DENABLE_GNUTLS=OFF -DENABLE_MBEDTLS=OFF -DENABLE_OPENSSL=OFF -DENABLE_WINDOWS_CRYPTO=OFF -DENABLE_BZIP2=OFF -DENABLE_LZMA=OFF -DENABLE_ZSTD=OFF -DBUILD_TOOLS=OFF -DBUILD_REGRESS=OFF -DBUILD_EXAMPLES=OFF -DBUILD_DOC=OFF
             cmake --build build-libzip -j
             sudo cmake --install build-libzip
-            echo "=== macOS: Building tacozip native library ==="
             python {package}/prebuild.py
 
-          # Windows Configuration - FIXED
           CIBW_ARCHS_WINDOWS: "AMD64"
+          CIBW_ENVIRONMENT_WINDOWS: |
+            CMAKE_BUILD_TYPE=Release
           
           CIBW_BEFORE_BUILD_WINDOWS: >
-            echo "=== Windows: Building zlib v${{ env.ZLIB_VERSION }} ===" &&
             python -m pip install cmake ninja &&
-            curl -L https://github.com/madler/zlib/archive/refs/tags/v${{ env.ZLIB_VERSION }}.zip -o zlib-${{ env.ZLIB_VERSION }}.zip &&
-            powershell -Command "Expand-Archive zlib-${{ env.ZLIB_VERSION }}.zip -DestinationPath ." &&
+            curl -L https://github.com/madler/zlib/archive/refs/tags/v${{ env.ZLIB_VERSION }}.zip -o zlib.zip &&
+            powershell -Command "Expand-Archive zlib.zip -DestinationPath ." &&
             cmake -S zlib-${{ env.ZLIB_VERSION }} -B build-zlib -DCMAKE_INSTALL_PREFIX="${{ env.LIBZIP_INSTALL_PREFIX_WIN }}" -DBUILD_SHARED_LIBS=ON &&
             cmake --build build-zlib --config ${{ env.CMAKE_BUILD_TYPE }} &&
             cmake --install build-zlib &&
-            echo "=== Windows: Building libzip v${{ env.LIBZIP_VERSION }} ===" &&
-            curl -L https://github.com/nih-at/libzip/archive/refs/tags/v${{ env.LIBZIP_VERSION }}.zip -o libzip-${{ env.LIBZIP_VERSION }}.zip &&
-            powershell -Command "Expand-Archive libzip-${{ env.LIBZIP_VERSION }}.zip -DestinationPath ." &&
+            curl -L https://github.com/nih-at/libzip/archive/refs/tags/v${{ env.LIBZIP_VERSION }}.zip -o libzip.zip &&
+            powershell -Command "Expand-Archive libzip.zip -DestinationPath ." &&
             cmake -S libzip-${{ env.LIBZIP_VERSION }} -B build-libzip -DCMAKE_INSTALL_PREFIX="${{ env.LIBZIP_INSTALL_PREFIX_WIN }}" -DCMAKE_BUILD_TYPE=${{ env.CMAKE_BUILD_TYPE }} -DBUILD_SHARED_LIBS=ON -DCMAKE_PREFIX_PATH="${{ env.LIBZIP_INSTALL_PREFIX_WIN }}" -DENABLE_COMMONCRYPTO=OFF -DENABLE_GNUTLS=OFF -DENABLE_MBEDTLS=OFF -DENABLE_OPENSSL=OFF -DENABLE_WINDOWS_CRYPTO=OFF -DENABLE_BZIP2=OFF -DENABLE_LZMA=OFF -DENABLE_ZSTD=OFF -DBUILD_TOOLS=OFF -DBUILD_REGRESS=OFF -DBUILD_EXAMPLES=OFF -DBUILD_DOC=OFF &&
             cmake --build build-libzip --config ${{ env.CMAKE_BUILD_TYPE }} &&
             cmake --install build-libzip &&
-            echo "=== Windows: Running prebuild ===" &&
-            python {package}/prebuild.py &&
-            echo "=== Windows: Verifying DLL ===" &&
-            dir {package}\tacozip
+            python {package}/prebuild.py
 
           CIBW_TEST_COMMAND: python -c "import tacozip; tacozip.self_check(); print('tacozip test passed')"
 
         run: |
-          echo "============================================="
-          echo "Starting wheel build for ${{ matrix.os }}"
-          echo "============================================="
-          
           cibuildwheel clients/python --output-dir wheelhouse
-          
-          echo "============================================="
-          echo "✅ Wheels successfully built for ${{ matrix.os }}:"
-          ls -lh wheelhouse
-          echo "============================================="
 
-      - name: Upload wheels as artifacts
+      - name: Upload wheels
         uses: actions/upload-artifact@v4
         with:
           name: wheels-${{ matrix.os }}
           path: wheelhouse/*.whl
           retention-days: 7
-
-      - name: Create build summary
-        shell: bash
-        run: |
-          echo "## Build Summary for ${{ matrix.os }}" >> $GITHUB_STEP_SUMMARY
-          echo "| Component | Version |" >> $GITHUB_STEP_SUMMARY
-          echo "|-----------|---------|" >> $GITHUB_STEP_SUMMARY
-          echo "| libzip | ${{ env.LIBZIP_VERSION }} |" >> $GITHUB_STEP_SUMMARY
-          echo "| zlib | ${{ env.ZLIB_VERSION }} |" >> $GITHUB_STEP_SUMMARY
-          echo "| Wheels built | $(ls wheelhouse/*.whl 2>/dev/null | wc -l) |" >> $GITHUB_STEP_SUMMARY
 
   publish:
     name: Publish to PyPI
@@ -186,12 +132,12 @@ jobs:
     if: startsWith(github.ref, 'refs/tags/v')
     
     steps:
-      - name: Checkout repository for sdist
+      - name: Checkout repository
         uses: actions/checkout@v4
         with:
           fetch-depth: 0
 
-      - name: Set up Python for sdist
+      - name: Set up Python
         uses: actions/setup-python@v5
         with:
           python-version: '3.11'
@@ -202,29 +148,17 @@ jobs:
           python -m pip install build
           python -m build --sdist
 
-      - name: Download all wheel artifacts
+      - name: Download wheels
         uses: actions/download-artifact@v4
         with:
           path: dist
           pattern: wheels-*
           merge-multiple: true
 
-      - name: Copy source distribution to dist
+      - name: Copy sdist
         shell: bash
         run: |
           cp clients/python/dist/*.tar.gz dist/
-
-      - name: List files to publish
-        shell: bash
-        run: |
-          echo "============================================="
-          echo "Files ready for PyPI upload:"
-          echo "============================================="
-          find dist -name "*.whl" -exec ls -lh {} \;
-          find dist -name "*.tar.gz" -exec ls -lh {} \;
-          echo "Total wheels: $(find dist -name '*.whl' | wc -l)"
-          echo "Total sdists: $(find dist -name '*.tar.gz' | wc -l)"
-          echo "============================================="
 
       - name: Publish to PyPI
         uses: pypa/gh-action-pypi-publish@v1.12.4
@@ -234,14 +168,3 @@ jobs:
           password: ${{ secrets.PYPI_API_TOKEN }}
           skip-existing: true
           verbose: true
-          print-hash: true
-
-      - name: Create release summary
-        shell: bash
-        run: |
-          echo "## 🚀 PyPI Release Summary" >> $GITHUB_STEP_SUMMARY
-          echo "Successfully published wheels built with:" >> $GITHUB_STEP_SUMMARY
-          echo "- **libzip**: ${{ env.LIBZIP_VERSION }}" >> $GITHUB_STEP_SUMMARY
-          echo "- **zlib**: ${{ env.ZLIB_VERSION }}" >> $GITHUB_STEP_SUMMARY
-          echo "- **Platforms**: Linux (x86_64, ARM64), macOS (Universal2), Windows (x64)" >> $GITHUB_STEP_SUMMARY
-          echo "- **Python versions**: 3.9, 3.10, 3.11, 3.12, 3.13" >> $GITHUB_STEP_SUMMARY

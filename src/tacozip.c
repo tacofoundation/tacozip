@@ -6,8 +6,9 @@
  * - tacozip_create() - create archive with up to 7 metadata entries
  * - tacozip_update_header() - write/update header metadata (optimized, bypasses libzip)
  * - tacozip_read_header() - read header metadata (optimized, bypasses libzip)
+ * - tacozip_parse_header() - parse header from buffer (no I/O)
+ * - tacozip_serialize_header() - serialize header to buffer (no I/O)
  * - tacozip_get_version() - get library version
- * - tacozip_detect_format() - detect ZIP32/ZIP64 format 
  *
  */
 
@@ -216,412 +217,6 @@ static inline int parse_header_payload(const unsigned char *payload,
 }
 
 /* ========================================================================== */
-/*                      FORMAT DETECTION IMPLEMENTATION                      */
-/* ========================================================================== */
-
-int tacozip_detect_format(const char *zip_path) {
-  if (!zip_path)
-    return TACOZIP_FORMAT_UNKNOWN;
-
-  FILE *fp = fopen(zip_path, "rb");
-  if (!fp)
-    return TACOZIP_FORMAT_UNKNOWN;
-
-  if (fseeko(fp, 0, SEEK_END) != 0) {
-    fclose(fp);
-    return TACOZIP_FORMAT_UNKNOWN;
-  }
-
-  off_t file_size = ftello(fp);
-  if (file_size < EOCD_MIN_SIZE) {
-    fclose(fp);
-    return TACOZIP_FORMAT_UNKNOWN;
-  }
-
-  // Search from end of file, accounting for possible ZIP comment
-  size_t search_size = (file_size > MAX_EOCD_SEARCH) 
-                       ? MAX_EOCD_SEARCH 
-                       : (size_t)file_size;
-
-  unsigned char *buffer = malloc(search_size);
-  if (!buffer) {
-    fclose(fp);
-    return TACOZIP_FORMAT_UNKNOWN;
-  }
-
-  off_t search_start = file_size - search_size;
-  if (fseeko(fp, search_start, SEEK_SET) != 0) {
-    free(buffer);
-    fclose(fp);
-    return TACOZIP_FORMAT_UNKNOWN;
-  }
-
-  size_t bytes_read = fread(buffer, 1, search_size, fp);
-  fclose(fp);
-
-  if (bytes_read != search_size) {
-    free(buffer);
-    return TACOZIP_FORMAT_UNKNOWN;
-  }
-
-  int result = TACOZIP_FORMAT_UNKNOWN;
-  
-  // First search for ZIP64 EOCD Locator (most reliable way to detect ZIP64)
-  for (long i = bytes_read - ZIP64_EOCD_LOCATOR_SIZE; i >= 0; i--) {
-    if (read_le32(buffer + i) == ZIP64_EOCD_LOCATOR_SIGNATURE) {
-      TACOZIP_DEBUG("Detected ZIP64 format (found EOCD Locator)");
-      result = TACOZIP_FORMAT_ZIP64;
-      break;
-    }
-  }
-  
-  // If no ZIP64 locator, search for regular EOCD
-  if (result == TACOZIP_FORMAT_UNKNOWN) {
-    for (long i = bytes_read - EOCD_MIN_SIZE; i >= 0; i--) {
-      if (read_le32(buffer + i) == ZIP_EOCD_SIGNATURE) {
-        // Check if CD offset/size have ZIP64 markers
-        uint32_t cd_size = read_le32(buffer + i + 12);
-        uint32_t cd_offset = read_le32(buffer + i + 16);
-        
-        if (cd_size == 0xFFFFFFFF || cd_offset == 0xFFFFFFFF) {
-          TACOZIP_DEBUG("Detected ZIP64 format (found markers in EOCD)");
-          result = TACOZIP_FORMAT_ZIP64;
-        } else {
-          TACOZIP_DEBUG("Detected ZIP32 format");
-          result = TACOZIP_FORMAT_ZIP32;
-        }
-        break;
-      }
-    }
-  }
-
-  free(buffer);
-  return result;
-}
-
-/* ========================================================================== */
-/*                      VALIDATION IMPLEMENTATION                            */
-/* ========================================================================== */
-
-const char *tacozip_validate_error_string(int result) {
-  switch (result) {
-    case TACOZ_VALID:
-      return "Valid TACO archive";
-    
-    /* Level 1 errors */
-    case TACOZ_INVALID_NOT_ZIP:
-      return "Not a ZIP file (missing LFH signature)";
-    case TACOZ_INVALID_NO_TACO:
-      return "No TACO_HEADER at offset 0 (file modified by external tool)";
-    case TACOZ_INVALID_HEADER_SIZE:
-      return "Invalid header size (corrupted)";
-    case TACOZ_INVALID_META_COUNT:
-      return "Invalid metadata count (must be 0-7)";
-    case TACOZ_INVALID_FILE_SIZE:
-      return "File too small to be valid archive";
-    
-    /* Level 2 errors */
-    case TACOZ_INVALID_NO_EOCD:
-      return "No End of Central Directory record found";
-    case TACOZ_INVALID_CD_OFFSET:
-      return "Invalid Central Directory offset";
-    case TACOZ_INVALID_NO_CD_ENTRY:
-      return "TACO_HEADER not found in Central Directory";
-    case TACOZ_INVALID_REORDERED:
-      return "Archive entries reordered (CD doesn't point to offset 0)";
-    
-    /* Level 3 errors */
-    case TACOZ_INVALID_CRC_LFH:
-      return "CRC32 mismatch in Local File Header";
-    case TACOZ_INVALID_CRC_CD:
-      return "CRC32 mismatch in Central Directory";
-    
-    default:
-      return "Unknown validation error";
-  }
-}
-
-int tacozip_validate(const char *zip_path, tacozip_validate_level_t level) {
-  if (!zip_path)
-    return TACOZ_ERR_PARAM;
-
-  TACOZIP_DEBUG("Validating '%s' with level %d", zip_path, level);
-
-  /* ===================================================================== */
-  /* LEVEL 1: QUICK - Header Checks                                       */
-  /* ===================================================================== */
-
-  FILE *fp = fopen(zip_path, "rb");
-  if (!fp)
-    return TACOZ_ERR_IO;
-
-  /* Check 1: File size must be at least header + EOCD */
-  if (fseeko(fp, 0, SEEK_END) != 0) {
-    fclose(fp);
-    return TACOZ_ERR_IO;
-  }
-
-  off_t file_size = ftello(fp);
-  if (file_size < TACO_HEADER_TOTAL_SIZE + EOCD_MIN_SIZE) {
-    fclose(fp);
-    TACOZIP_DEBUG("File too small: %lld bytes", (long long)file_size);
-    return TACOZ_INVALID_FILE_SIZE;
-  }
-
-  /* Check 2: Read first 157 bytes (TACO_HEADER) */
-  if (fseeko(fp, 0, SEEK_SET) != 0) {
-    fclose(fp);
-    return TACOZ_ERR_IO;
-  }
-
-  unsigned char header[TACO_HEADER_TOTAL_SIZE];
-  if (fread(header, 1, TACO_HEADER_TOTAL_SIZE, fp) != TACO_HEADER_TOTAL_SIZE) {
-    fclose(fp);
-    return TACOZ_ERR_IO;
-  }
-
-  /* Check 3: Verify LFH signature */
-  if (read_le32(header) != ZIP_LFH_SIGNATURE) {
-    fclose(fp);
-    TACOZIP_DEBUG("Not a ZIP file: invalid LFH signature");
-    return TACOZ_INVALID_NOT_ZIP;
-  }
-
-  /* Check 4: Verify filename is "TACO_HEADER" */
-  if (memcmp(header + 30, TACO_HEADER_NAME, TACO_HEADER_NAME_LEN) != 0) {
-    fclose(fp);
-    TACOZIP_DEBUG("TACO_HEADER not at offset 0");
-    return TACOZ_INVALID_NO_TACO;
-  }
-
-  /* Check 5: Verify compressed and uncompressed size == 116 */
-  uint32_t compressed_size = read_le32(header + 18);
-  uint32_t uncompressed_size = read_le32(header + 22);
-  if (compressed_size != TACO_HEADER_PAYLOAD_SIZE || 
-      uncompressed_size != TACO_HEADER_PAYLOAD_SIZE) {
-    fclose(fp);
-    TACOZIP_DEBUG("Invalid header size: compressed=%u, uncompressed=%u", 
-                  compressed_size, uncompressed_size);
-    return TACOZ_INVALID_HEADER_SIZE;
-  }
-
-  /* Check 6: Parse and validate metadata count */
-  taco_meta_array_t meta = {0};
-  int rc = parse_header_payload(header + 41, &meta);
-  if (rc != TACOZ_OK || meta.count > TACO_HEADER_MAX_ENTRIES) {
-    fclose(fp);
-    TACOZIP_DEBUG("Invalid metadata count: %u", meta.count);
-    return TACOZ_INVALID_META_COUNT;
-  }
-
-  TACOZIP_DEBUG("Level 1 (QUICK) validation passed");
-
-  if (level == TACOZIP_VALIDATE_QUICK) {
-    fclose(fp);
-    return TACOZ_VALID;
-  }
-
-  /* ===================================================================== */
-  /* LEVEL 2: NORMAL - Structure Checks                                   */
-  /* ===================================================================== */
-
-  /* Check 7: Find EOCD and extract CD info */
-  size_t search_size = (file_size > MAX_EOCD_SEARCH) 
-                       ? MAX_EOCD_SEARCH 
-                       : (size_t)file_size;
-
-  unsigned char *buffer = malloc(search_size);
-  if (!buffer) {
-    fclose(fp);
-    return TACOZ_ERR_IO;
-  }
-
-  off_t search_start = file_size - search_size;
-  if (fseeko(fp, search_start, SEEK_SET) != 0) {
-    free(buffer);
-    fclose(fp);
-    return TACOZ_ERR_IO;
-  }
-
-  size_t bytes_read = fread(buffer, 1, search_size, fp);
-  if (bytes_read != search_size) {
-    free(buffer);
-    fclose(fp);
-    return TACOZ_ERR_IO;
-  }
-
-  uint64_t cd_offset = 0;
-  uint64_t cd_size = 0;
-  int found_eocd = 0;
-
-  /* Search for ZIP64 EOCD Locator first */
-  for (long i = bytes_read - ZIP64_EOCD_LOCATOR_SIZE; i >= 0; i--) {
-    if (read_le32(buffer + i) == ZIP64_EOCD_LOCATOR_SIGNATURE) {
-      uint64_t zip64_eocd_offset = read_le64(buffer + i + 8);
-      
-      unsigned char zip64_eocd[ZIP64_EOCD_MIN_SIZE];
-      if (fseeko(fp, (off_t)zip64_eocd_offset, SEEK_SET) == 0 &&
-          fread(zip64_eocd, 1, ZIP64_EOCD_MIN_SIZE, fp) == ZIP64_EOCD_MIN_SIZE &&
-          read_le32(zip64_eocd) == ZIP64_EOCD_SIGNATURE) {
-        cd_size = read_le64(zip64_eocd + 40);
-        cd_offset = read_le64(zip64_eocd + 48);
-        found_eocd = 1;
-        TACOZIP_DEBUG("Found ZIP64 EOCD: cd_offset=%llu", 
-                      (unsigned long long)cd_offset);
-        break;
-      }
-    }
-  }
-
-  /* If no ZIP64, search for regular EOCD */
-  if (!found_eocd) {
-    for (long i = bytes_read - EOCD_MIN_SIZE; i >= 0; i--) {
-      if (read_le32(buffer + i) == ZIP_EOCD_SIGNATURE) {
-        uint32_t cd_size32 = read_le32(buffer + i + 12);
-        uint32_t cd_offset32 = read_le32(buffer + i + 16);
-        
-        if (cd_size32 != 0xFFFFFFFF && cd_offset32 != 0xFFFFFFFF) {
-          cd_size = cd_size32;
-          cd_offset = cd_offset32;
-          found_eocd = 1;
-          TACOZIP_DEBUG("Found ZIP32 EOCD: cd_offset=%u", cd_offset32);
-          break;
-        }
-      }
-    }
-  }
-
-  free(buffer);
-
-  if (!found_eocd) {
-    fclose(fp);
-    TACOZIP_DEBUG("No EOCD found");
-    return TACOZ_INVALID_NO_EOCD;
-  }
-
-  /* Check 8: Validate CD offset is reasonable */
-  if (cd_offset >= (uint64_t)file_size || cd_size > (uint64_t)file_size) {
-    fclose(fp);
-    TACOZIP_DEBUG("Invalid CD: offset=%llu, size=%llu, file_size=%lld",
-                  (unsigned long long)cd_offset, 
-                  (unsigned long long)cd_size,
-                  (long long)file_size);
-    return TACOZ_INVALID_CD_OFFSET;
-  }
-
-  /* Check 9: Read CD and find TACO_HEADER entry */
-  if (cd_size > 0xFFFFFFFF) {
-    fclose(fp);
-    return TACOZ_ERR_TOO_LARGE;
-  }
-
-  unsigned char *cd_data = malloc((size_t)cd_size);
-  if (!cd_data) {
-    fclose(fp);
-    return TACOZ_ERR_IO;
-  }
-
-  if (fseeko(fp, (off_t)cd_offset, SEEK_SET) != 0) {
-    free(cd_data);
-    fclose(fp);
-    return TACOZ_ERR_IO;
-  }
-
-  if (fread(cd_data, 1, (size_t)cd_size, fp) != (size_t)cd_size) {
-    free(cd_data);
-    fclose(fp);
-    return TACOZ_ERR_IO;
-  }
-
-  /* Search for TACO_HEADER in CD */
-  uint64_t offset = 0;
-  int found_header = 0;
-  uint64_t header_cd_offset = 0;
-  uint32_t cd_entry_crc32 = 0;
-
-  while (offset + 46 <= cd_size) {
-    if (read_le32(cd_data + offset) != ZIP_CDH_SIGNATURE)
-      break;
-
-    uint16_t filename_len = read_le16(cd_data + offset + 28);
-    uint16_t extra_len = read_le16(cd_data + offset + 30);
-    uint16_t comment_len = read_le16(cd_data + offset + 32);
-
-    if (offset + 46 + filename_len + extra_len + comment_len > cd_size)
-      break;
-
-    if (offset + 46 + filename_len <= cd_size &&
-        filename_len == TACO_HEADER_NAME_LEN &&
-        memcmp(cd_data + offset + 46, TACO_HEADER_NAME, TACO_HEADER_NAME_LEN) == 0) {
-      header_cd_offset = offset;
-      cd_entry_crc32 = read_le32(cd_data + offset + 16);
-      found_header = 1;
-      TACOZIP_DEBUG("Found TACO_HEADER in CD at offset %llu", 
-                    (unsigned long long)header_cd_offset);
-      break;
-    }
-
-    offset += 46 + filename_len + extra_len + comment_len;
-  }
-
-  if (!found_header) {
-    free(cd_data);
-    fclose(fp);
-    TACOZIP_DEBUG("TACO_HEADER not found in CD");
-    return TACOZ_INVALID_NO_CD_ENTRY;
-  }
-
-  /* Check 10: Verify CD entry points to offset 0 */
-  uint32_t local_header_offset = read_le32(cd_data + header_cd_offset + 42);
-  if (local_header_offset != 0) {
-    free(cd_data);
-    fclose(fp);
-    TACOZIP_DEBUG("CD entry points to offset %u, not 0", local_header_offset);
-    return TACOZ_INVALID_REORDERED;
-  }
-
-  free(cd_data);
-
-  TACOZIP_DEBUG("Level 2 (NORMAL) validation passed");
-
-  if (level == TACOZIP_VALIDATE_NORMAL) {
-    fclose(fp);
-    return TACOZ_VALID;
-  }
-
-  /* ===================================================================== */
-  /* LEVEL 3: DEEP - CRC32 Validation                                     */
-  /* ===================================================================== */
-
-  /* Check 11: Calculate CRC32 of payload and compare with LFH */
-  uint32_t lfh_crc32 = read_le32(header + 14);
-  
-  uLong calculated_crc = crc32(0L, Z_NULL, 0);
-  calculated_crc = crc32(calculated_crc, header + 41, TACO_HEADER_PAYLOAD_SIZE);
-  uint32_t expected_crc32 = (uint32_t)calculated_crc;
-
-  if (lfh_crc32 != expected_crc32) {
-    fclose(fp);
-    TACOZIP_DEBUG("CRC32 mismatch in LFH: expected=0x%08x, found=0x%08x",
-                  expected_crc32, lfh_crc32);
-    return TACOZ_INVALID_CRC_LFH;
-  }
-
-  /* Check 12: Compare with CD entry CRC32 */
-  if (cd_entry_crc32 != expected_crc32) {
-    fclose(fp);
-    TACOZIP_DEBUG("CRC32 mismatch in CD: expected=0x%08x, found=0x%08x",
-                  expected_crc32, cd_entry_crc32);
-    return TACOZ_INVALID_CRC_CD;
-  }
-
-  fclose(fp);
-
-  TACOZIP_DEBUG("Level 3 (DEEP) validation passed");
-  return TACOZ_VALID;
-}
-
-/* ========================================================================== */
 /*                    CENTRAL DIRECTORY UTILITIES                            */
 /* ========================================================================== */
 
@@ -660,17 +255,10 @@ static int find_cd_and_update_crc32(FILE *fp, uint32_t new_crc32) {
   int is_zip64 = 0;
 
   // Step 1: Search for ZIP64 EOCD Locator (0x07064b50)
-  // This is the most robust way to detect ZIP64
   for (long i = bytes_read - ZIP64_EOCD_LOCATOR_SIZE; i >= 0; i--) {
     if (read_le32(buffer + i) == ZIP64_EOCD_LOCATOR_SIGNATURE) {
       TACOZIP_DEBUG("Found ZIP64 EOCD Locator at offset %lld",
                     (unsigned long long)search_start + i);
-      
-      // ZIP64 EOCD Locator structure:
-      // Offset 0-3:   Signature (0x07064b50)
-      // Offset 4-7:   Number of disk with ZIP64 EOCD
-      // Offset 8-15:  Offset of ZIP64 EOCD record
-      // Offset 16-19: Total number of disks
       
       uint64_t zip64_eocd_offset = read_le64(buffer + i + 8);
       
@@ -696,18 +284,6 @@ static int find_cd_and_update_crc32(FILE *fp, uint32_t new_crc32) {
         return TACOZ_ERR_INVALID_HEADER;
       }
       
-      // ZIP64 EOCD structure:
-      // Offset 0-3:   Signature (0x06064b50)
-      // Offset 4-11:  Size of ZIP64 EOCD record
-      // Offset 12-13: Version made by
-      // Offset 14-15: Version needed to extract
-      // Offset 16-19: Number of this disk
-      // Offset 20-23: Disk where CD starts
-      // Offset 24-31: Number of CD entries on this disk
-      // Offset 32-39: Total number of CD entries
-      // Offset 40-47: Size of CD (64-bit)
-      // Offset 48-55: Offset of CD (64-bit)
-      
       cd_size = read_le64(zip64_eocd + 40);
       cd_offset = read_le64(zip64_eocd + 48);
       found_cd = 1;
@@ -725,16 +301,6 @@ static int find_cd_and_update_crc32(FILE *fp, uint32_t new_crc32) {
     for (long i = bytes_read - EOCD_MIN_SIZE; i >= 0; i--) {
       if (read_le32(buffer + i) == ZIP_EOCD_SIGNATURE) {
         TACOZIP_DEBUG("Found ZIP32 EOCD at offset %lld", (long long)(search_start + i));
-        
-        // Regular EOCD structure:
-        // Offset 0-3:   Signature (0x06054b50)
-        // Offset 4-5:   Number of this disk
-        // Offset 6-7:   Disk where CD starts
-        // Offset 8-9:   Number of CD entries on this disk
-        // Offset 10-11: Total number of CD entries
-        // Offset 12-15: Size of CD (32-bit)
-        // Offset 16-19: Offset of CD (32-bit)
-        // Offset 20-21: Comment length
         
         uint32_t cd_size32 = read_le32(buffer + i + 12);
         uint32_t cd_offset32 = read_le32(buffer + i + 16);
@@ -765,7 +331,6 @@ static int find_cd_and_update_crc32(FILE *fp, uint32_t new_crc32) {
   }
 
   // Step 4: Read Central Directory and find TACO_HEADER entry
-  // Safety check: CD size must be reasonable (< 4GB for memory allocation)
   if (cd_size > 0xFFFFFFFF) {
     TACOZIP_DEBUG("CD size too large: %llu bytes", (unsigned long long)cd_size);
     return TACOZ_ERR_TOO_LARGE;
@@ -785,7 +350,7 @@ static int find_cd_and_update_crc32(FILE *fp, uint32_t new_crc32) {
     return TACOZ_ERR_IO;
   }
 
-  // Step 5: Find TACO_HEADER entry in CD with proper bounds checking
+  // Step 5: Find TACO_HEADER entry in CD
   uint64_t offset = 0;
   int found_header = 0;
   uint64_t header_cd_offset = 0;
@@ -798,7 +363,6 @@ static int find_cd_and_update_crc32(FILE *fp, uint32_t new_crc32) {
     uint16_t extra_len = read_le16(cd_data + offset + 30);
     uint16_t comment_len = read_le16(cd_data + offset + 32);
 
-    // CRITICAL BOUNDS CHECK: Ensure we don't overflow
     if (offset + 46 + filename_len + extra_len + comment_len > cd_size) {
       TACOZIP_DEBUG("Corrupted CD: entry extends beyond CD size");
       break;
@@ -825,7 +389,6 @@ static int find_cd_and_update_crc32(FILE *fp, uint32_t new_crc32) {
   }
 
   // Step 6: Update CRC32 in CD entry
-  // CRC32 is at offset 16 from the start of the CD entry
   uint64_t crc_file_offset = cd_offset + header_cd_offset + 16;
   
   if (fseeko(fp, (off_t)crc_file_offset, SEEK_SET) != 0)
@@ -938,7 +501,6 @@ int tacozip_read_header(const char *zip_path, taco_meta_array_t *meta_out) {
   if (!zip_path || !meta_out)
     return TACOZ_ERR_PARAM;
 
-  // Works for both ZIP32 and ZIP64 - TACO header is always at offset 0
   FILE *fp = fopen(zip_path, "rb");
   if (!fp)
     return TACOZ_ERR_IO;
@@ -959,7 +521,6 @@ int tacozip_update_header(const char *zip_path, const taco_meta_array_t *meta) {
 
   TACOZIP_DEBUG("Updating header in '%s'", zip_path);
 
-  // Works for both ZIP32 and ZIP64
   FILE *fp = fopen(zip_path, "r+b");
   if (!fp)
     return TACOZ_ERR_IO;

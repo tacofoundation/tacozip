@@ -15,30 +15,6 @@ class TestIntegration:
         assert hasattr(tacozip, "TACOZ_ERR_EXISTS")
         assert hasattr(tacozip, "TACO_HEADER_MAX_ENTRIES")
 
-        # Test format detection constants
-        assert hasattr(tacozip, "TACOZIP_FORMAT_UNKNOWN")
-        assert hasattr(tacozip, "TACOZIP_FORMAT_ZIP32")
-        assert hasattr(tacozip, "TACOZIP_FORMAT_ZIP64")
-
-        # Test validation level constants
-        assert hasattr(tacozip, "TACOZIP_VALIDATE_QUICK")
-        assert hasattr(tacozip, "TACOZIP_VALIDATE_NORMAL")
-        assert hasattr(tacozip, "TACOZIP_VALIDATE_DEEP")
-
-        # Test validation result constants
-        assert hasattr(tacozip, "TACOZ_VALID")
-        assert hasattr(tacozip, "TACOZ_INVALID_NOT_ZIP")
-        assert hasattr(tacozip, "TACOZ_INVALID_NO_TACO")
-        assert hasattr(tacozip, "TACOZ_INVALID_HEADER_SIZE")
-        assert hasattr(tacozip, "TACOZ_INVALID_META_COUNT")
-        assert hasattr(tacozip, "TACOZ_INVALID_FILE_SIZE")
-        assert hasattr(tacozip, "TACOZ_INVALID_NO_EOCD")
-        assert hasattr(tacozip, "TACOZ_INVALID_CD_OFFSET")
-        assert hasattr(tacozip, "TACOZ_INVALID_NO_CD_ENTRY")
-        assert hasattr(tacozip, "TACOZ_INVALID_REORDERED")
-        assert hasattr(tacozip, "TACOZ_INVALID_CRC_LFH")
-        assert hasattr(tacozip, "TACOZ_INVALID_CRC_CD")
-
         # Test exception
         assert hasattr(tacozip, "TacozipError")
 
@@ -46,8 +22,6 @@ class TestIntegration:
         assert hasattr(tacozip, "create")
         assert hasattr(tacozip, "read_header")
         assert hasattr(tacozip, "update_header")
-        assert hasattr(tacozip, "detect_format")
-        assert hasattr(tacozip, "validate")
         assert hasattr(tacozip, "get_library_version")
         assert hasattr(tacozip, "self_check")
 
@@ -70,30 +44,6 @@ class TestIntegration:
         assert tacozip.TACOZ_ERR_NOT_FOUND == config.TACOZ_ERR_NOT_FOUND
         assert tacozip.TACOZ_ERR_EXISTS == config.TACOZ_ERR_EXISTS
         assert tacozip.TACO_HEADER_MAX_ENTRIES == config.TACO_HEADER_MAX_ENTRIES
-
-        # Format constants
-        assert tacozip.TACOZIP_FORMAT_UNKNOWN == config.TACOZIP_FORMAT_UNKNOWN
-        assert tacozip.TACOZIP_FORMAT_ZIP32 == config.TACOZIP_FORMAT_ZIP32
-        assert tacozip.TACOZIP_FORMAT_ZIP64 == config.TACOZIP_FORMAT_ZIP64
-
-        # Validation level constants
-        assert tacozip.TACOZIP_VALIDATE_QUICK == config.TACOZIP_VALIDATE_QUICK
-        assert tacozip.TACOZIP_VALIDATE_NORMAL == config.TACOZIP_VALIDATE_NORMAL
-        assert tacozip.TACOZIP_VALIDATE_DEEP == config.TACOZIP_VALIDATE_DEEP
-
-        # Validation result constants
-        assert tacozip.TACOZ_VALID == config.TACOZ_VALID
-        assert tacozip.TACOZ_INVALID_NOT_ZIP == config.TACOZ_INVALID_NOT_ZIP
-        assert tacozip.TACOZ_INVALID_NO_TACO == config.TACOZ_INVALID_NO_TACO
-        assert tacozip.TACOZ_INVALID_HEADER_SIZE == config.TACOZ_INVALID_HEADER_SIZE
-        assert tacozip.TACOZ_INVALID_META_COUNT == config.TACOZ_INVALID_META_COUNT
-        assert tacozip.TACOZ_INVALID_FILE_SIZE == config.TACOZ_INVALID_FILE_SIZE
-        assert tacozip.TACOZ_INVALID_NO_EOCD == config.TACOZ_INVALID_NO_EOCD
-        assert tacozip.TACOZ_INVALID_CD_OFFSET == config.TACOZ_INVALID_CD_OFFSET
-        assert tacozip.TACOZ_INVALID_NO_CD_ENTRY == config.TACOZ_INVALID_NO_CD_ENTRY
-        assert tacozip.TACOZ_INVALID_REORDERED == config.TACOZ_INVALID_REORDERED
-        assert tacozip.TACOZ_INVALID_CRC_LFH == config.TACOZ_INVALID_CRC_LFH
-        assert tacozip.TACOZ_INVALID_CRC_CD == config.TACOZ_INVALID_CRC_CD
 
     def test_exception_accessibility(self):
         """Test that exceptions are accessible from main package."""
@@ -128,35 +78,12 @@ class TestIntegration:
             "TACOZ_ERR_EXISTS",
             "TACOZ_ERR_TOO_LARGE",
             "TACO_HEADER_MAX_ENTRIES",
-            # Format detection
-            "TACOZIP_FORMAT_UNKNOWN",
-            "TACOZIP_FORMAT_ZIP32",
-            "TACOZIP_FORMAT_ZIP64",
-            # Validation levels
-            "TACOZIP_VALIDATE_QUICK",
-            "TACOZIP_VALIDATE_NORMAL",
-            "TACOZIP_VALIDATE_DEEP",
-            # Validation results
-            "TACOZ_VALID",
-            "TACOZ_INVALID_NOT_ZIP",
-            "TACOZ_INVALID_NO_TACO",
-            "TACOZ_INVALID_HEADER_SIZE",
-            "TACOZ_INVALID_META_COUNT",
-            "TACOZ_INVALID_FILE_SIZE",
-            "TACOZ_INVALID_NO_EOCD",
-            "TACOZ_INVALID_CD_OFFSET",
-            "TACOZ_INVALID_NO_CD_ENTRY",
-            "TACOZ_INVALID_REORDERED",
-            "TACOZ_INVALID_CRC_LFH",
-            "TACOZ_INVALID_CRC_CD",
             # Exceptions
             "TacozipError",
             # Core API
             "create",
             "update_header",
             "read_header",
-            "detect_format",
-            "validate",
             "get_library_version",
         }
 
@@ -193,8 +120,6 @@ class TestIntegration:
             "create",
             "read_header",
             "update_header",
-            "detect_format",
-            "validate",
             "get_library_version",
             "self_check",
         ]
@@ -221,55 +146,15 @@ class TestIntegration:
             value = getattr(tacozip, error_code)
             assert isinstance(value, int), f"{error_code} should be an integer"
 
-    def test_format_constants_completeness(self):
-        """Test that all format constants are accessible from package."""
-        format_constants = [
-            "TACOZIP_FORMAT_UNKNOWN",
-            "TACOZIP_FORMAT_ZIP32",
-            "TACOZIP_FORMAT_ZIP64",
-        ]
-
-        for const_name in format_constants:
-            assert hasattr(tacozip, const_name), f"{const_name} should be accessible"
-            value = getattr(tacozip, const_name)
-            assert isinstance(value, int), f"{const_name} should be an integer"
-
-    def test_validation_constants_completeness(self):
-        """Test that all validation constants are accessible from package."""
-        validation_constants = [
-            "TACOZIP_VALIDATE_QUICK",
-            "TACOZIP_VALIDATE_NORMAL",
-            "TACOZIP_VALIDATE_DEEP",
-            "TACOZ_VALID",
-            "TACOZ_INVALID_NOT_ZIP",
-            "TACOZ_INVALID_NO_TACO",
-            "TACOZ_INVALID_HEADER_SIZE",
-            "TACOZ_INVALID_META_COUNT",
-            "TACOZ_INVALID_FILE_SIZE",
-            "TACOZ_INVALID_NO_EOCD",
-            "TACOZ_INVALID_CD_OFFSET",
-            "TACOZ_INVALID_NO_CD_ENTRY",
-            "TACOZ_INVALID_REORDERED",
-            "TACOZ_INVALID_CRC_LFH",
-            "TACOZ_INVALID_CRC_CD",
-        ]
-
-        for const_name in validation_constants:
-            assert hasattr(tacozip, const_name), f"{const_name} should be accessible"
-            value = getattr(tacozip, const_name)
-            assert isinstance(value, int), f"{const_name} should be an integer"
-
     def test_api_consistency(self):
         """Test that API functions have consistent patterns."""
         # Test that header functions exist
         assert hasattr(tacozip, "read_header")
         assert hasattr(tacozip, "update_header")
 
-        # Test that new functions exist
-        assert hasattr(tacozip, "detect_format")
-        assert hasattr(tacozip, "validate")
-
         # Test that removed functions do NOT exist
+        assert not hasattr(tacozip, "detect_format")
+        assert not hasattr(tacozip, "validate")
         assert not hasattr(tacozip, "append_files")
         assert not hasattr(tacozip, "trim_from")
 
@@ -289,12 +174,6 @@ class TestIntegration:
             "TACOZ_OK",
             "TACOZ_ERR_IO",
             "TACO_HEADER_MAX_ENTRIES",
-            "TACOZIP_FORMAT_ZIP32",
-            "TACOZIP_FORMAT_ZIP64",
-            "TACOZIP_VALIDATE_QUICK",
-            "TACOZIP_VALIDATE_NORMAL",
-            "TACOZ_VALID",
-            "TACOZ_INVALID_NOT_ZIP",
         ]
 
         for const_name in int_constants:

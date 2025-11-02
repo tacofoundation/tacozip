@@ -24,88 +24,6 @@ class TestConfig:
         assert config.TACO_HEADER_NAME_LEN == 11
         assert config.TACO_HEADER_PAYLOAD_SIZE == 116
 
-    def test_format_constants(self):
-        """Test format detection constants."""
-        assert hasattr(config, "TACOZIP_FORMAT_UNKNOWN")
-        assert hasattr(config, "TACOZIP_FORMAT_ZIP32")
-        assert hasattr(config, "TACOZIP_FORMAT_ZIP64")
-
-        # Verify they are different values
-        assert config.TACOZIP_FORMAT_UNKNOWN != config.TACOZIP_FORMAT_ZIP32
-        assert config.TACOZIP_FORMAT_UNKNOWN != config.TACOZIP_FORMAT_ZIP64
-        assert config.TACOZIP_FORMAT_ZIP32 != config.TACOZIP_FORMAT_ZIP64
-
-        # Verify they are integers
-        assert isinstance(config.TACOZIP_FORMAT_UNKNOWN, int)
-        assert isinstance(config.TACOZIP_FORMAT_ZIP32, int)
-        assert isinstance(config.TACOZIP_FORMAT_ZIP64, int)
-
-    def test_validation_level_constants(self):
-        """Test validation level constants."""
-        assert hasattr(config, "TACOZIP_VALIDATE_QUICK")
-        assert hasattr(config, "TACOZIP_VALIDATE_NORMAL")
-        assert hasattr(config, "TACOZIP_VALIDATE_DEEP")
-
-        # Verify they are different values
-        assert config.TACOZIP_VALIDATE_QUICK != config.TACOZIP_VALIDATE_NORMAL
-        assert config.TACOZIP_VALIDATE_QUICK != config.TACOZIP_VALIDATE_DEEP
-        assert config.TACOZIP_VALIDATE_NORMAL != config.TACOZIP_VALIDATE_DEEP
-
-        # Verify they are integers
-        assert isinstance(config.TACOZIP_VALIDATE_QUICK, int)
-        assert isinstance(config.TACOZIP_VALIDATE_NORMAL, int)
-        assert isinstance(config.TACOZIP_VALIDATE_DEEP, int)
-
-    def test_validation_result_constants(self):
-        """Test validation result constants."""
-        # Valid result
-        assert hasattr(config, "TACOZ_VALID")
-
-        # Invalid results
-        assert hasattr(config, "TACOZ_INVALID_NOT_ZIP")
-        assert hasattr(config, "TACOZ_INVALID_NO_TACO")
-        assert hasattr(config, "TACOZ_INVALID_HEADER_SIZE")
-        assert hasattr(config, "TACOZ_INVALID_META_COUNT")
-        assert hasattr(config, "TACOZ_INVALID_FILE_SIZE")
-        assert hasattr(config, "TACOZ_INVALID_NO_EOCD")
-        assert hasattr(config, "TACOZ_INVALID_CD_OFFSET")
-        assert hasattr(config, "TACOZ_INVALID_NO_CD_ENTRY")
-        assert hasattr(config, "TACOZ_INVALID_REORDERED")
-        assert hasattr(config, "TACOZ_INVALID_CRC_LFH")
-        assert hasattr(config, "TACOZ_INVALID_CRC_CD")
-
-        # Verify all are integers
-        assert isinstance(config.TACOZ_VALID, int)
-        assert isinstance(config.TACOZ_INVALID_NOT_ZIP, int)
-        assert isinstance(config.TACOZ_INVALID_NO_TACO, int)
-        assert isinstance(config.TACOZ_INVALID_HEADER_SIZE, int)
-        assert isinstance(config.TACOZ_INVALID_META_COUNT, int)
-        assert isinstance(config.TACOZ_INVALID_FILE_SIZE, int)
-        assert isinstance(config.TACOZ_INVALID_NO_EOCD, int)
-        assert isinstance(config.TACOZ_INVALID_CD_OFFSET, int)
-        assert isinstance(config.TACOZ_INVALID_NO_CD_ENTRY, int)
-        assert isinstance(config.TACOZ_INVALID_REORDERED, int)
-        assert isinstance(config.TACOZ_INVALID_CRC_LFH, int)
-        assert isinstance(config.TACOZ_INVALID_CRC_CD, int)
-
-        # Verify TACOZ_VALID is distinct from all invalid codes
-        invalid_codes = [
-            config.TACOZ_INVALID_NOT_ZIP,
-            config.TACOZ_INVALID_NO_TACO,
-            config.TACOZ_INVALID_HEADER_SIZE,
-            config.TACOZ_INVALID_META_COUNT,
-            config.TACOZ_INVALID_FILE_SIZE,
-            config.TACOZ_INVALID_NO_EOCD,
-            config.TACOZ_INVALID_CD_OFFSET,
-            config.TACOZ_INVALID_NO_CD_ENTRY,
-            config.TACOZ_INVALID_REORDERED,
-            config.TACOZ_INVALID_CRC_LFH,
-            config.TACOZ_INVALID_CRC_CD,
-        ]
-
-        for invalid_code in invalid_codes:
-            assert config.TACOZ_VALID != invalid_code
-
     def test_error_messages(self):
         """Test error messages exist for all error codes."""
         assert config.TACOZ_ERR_IO in config.ERROR_MESSAGES
@@ -162,32 +80,6 @@ class TestConfig:
         assert len(win32_libs) > 0
         assert all(lib.endswith(".dll") for lib in win32_libs)
 
-    def test_format_constants_values(self):
-        """Test that format constants have reasonable values."""
-        # UNKNOWN should typically be 0 or negative
-        assert config.TACOZIP_FORMAT_UNKNOWN <= 0
-
-        # ZIP32 and ZIP64 should be positive and different
-        assert config.TACOZIP_FORMAT_ZIP32 > 0
-        assert config.TACOZIP_FORMAT_ZIP64 > 0
-
-    def test_validation_level_ordering(self):
-        """Test that validation levels have logical ordering."""
-        # Just verify they exist and are different
-        # The actual values don't need to be ordered
-        levels = [
-            config.TACOZIP_VALIDATE_QUICK,
-            config.TACOZIP_VALIDATE_NORMAL,
-            config.TACOZIP_VALIDATE_DEEP,
-        ]
-
-        # All should be non-negative
-        for level in levels:
-            assert level >= 0
-
-        # All should be unique
-        assert len(set(levels)) == 3
-
 
 class TestConfigCompleteness:
     """Test that config module exports all necessary constants."""
@@ -216,40 +108,6 @@ class TestConfigCompleteness:
             "TACO_HEADER_NAME",
             "TACO_HEADER_NAME_LEN",
             "TACO_HEADER_PAYLOAD_SIZE",
-        ]
-
-        for const_name in required_constants:
-            assert hasattr(config, const_name), f"Missing constant: {const_name}"
-
-    def test_all_format_constants_defined(self):
-        """Test that all format constants are defined."""
-        required_constants = [
-            "TACOZIP_FORMAT_UNKNOWN",
-            "TACOZIP_FORMAT_ZIP32",
-            "TACOZIP_FORMAT_ZIP64",
-        ]
-
-        for const_name in required_constants:
-            assert hasattr(config, const_name), f"Missing constant: {const_name}"
-
-    def test_all_validation_constants_defined(self):
-        """Test that all validation constants are defined."""
-        required_constants = [
-            "TACOZIP_VALIDATE_QUICK",
-            "TACOZIP_VALIDATE_NORMAL",
-            "TACOZIP_VALIDATE_DEEP",
-            "TACOZ_VALID",
-            "TACOZ_INVALID_NOT_ZIP",
-            "TACOZ_INVALID_NO_TACO",
-            "TACOZ_INVALID_HEADER_SIZE",
-            "TACOZ_INVALID_META_COUNT",
-            "TACOZ_INVALID_FILE_SIZE",
-            "TACOZ_INVALID_NO_EOCD",
-            "TACOZ_INVALID_CD_OFFSET",
-            "TACOZ_INVALID_NO_CD_ENTRY",
-            "TACOZ_INVALID_REORDERED",
-            "TACOZ_INVALID_CRC_LFH",
-            "TACOZ_INVALID_CRC_CD",
         ]
 
         for const_name in required_constants:

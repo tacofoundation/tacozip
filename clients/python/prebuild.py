@@ -20,8 +20,7 @@ def fix_newlines_for_macos():
 
     files_to_fix = [
         current / "include" / "tacozip.h",
-        current / "src" / "tacozip.c",
-        current / "include" / "tacozip_config.h.in",
+        current / "src" / "tacozip.c"        
     ]
 
     fixed_count = 0

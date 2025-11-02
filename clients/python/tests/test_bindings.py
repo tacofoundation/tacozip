@@ -49,24 +49,6 @@ class TestBindings:
             _check_result(config.TACOZ_ERR_PARAM)
         assert exc_info.value.code == config.TACOZ_ERR_PARAM
 
-    def test_prepare_string_array(self):
-        """Test _prepare_string_array function."""
-        from tacozip.bindings import _prepare_string_array
-
-        strings = ["file1.txt", "file2.txt", "file3.txt"]
-        string_array, byte_strings = _prepare_string_array(strings)
-
-        assert len(byte_strings) == 3
-        assert len(string_array) == 3
-
-        for i, original in enumerate(strings):
-            assert byte_strings[i] == original.encode("utf-8")
-
-        # Test empty array
-        empty_array, empty_bytes = _prepare_string_array([])
-        assert len(empty_array) == 0
-        assert len(empty_bytes) == 0
-
     def test_prepare_meta_array(self):
         """Test _prepare_meta_array function."""
         from tacozip.bindings import _prepare_meta_array
@@ -143,69 +125,6 @@ class TestBindings:
         mock_lib.tacozip_update_header.assert_called_once()
 
     @patch("tacozip.bindings._lib")
-    def test_detect_format_function(self, mock_lib):
-        """Test detect_format function."""
-        mock_lib.tacozip_detect_format.return_value = config.TACOZIP_FORMAT_ZIP32
-
-        result = bindings.detect_format("test.zip")
-
-        assert result == config.TACOZIP_FORMAT_ZIP32
-        mock_lib.tacozip_detect_format.assert_called_once()
-        args = mock_lib.tacozip_detect_format.call_args[0]
-        assert args[0] == b"test.zip"
-
-    @patch("tacozip.bindings._lib")
-    def test_detect_format_zip64(self, mock_lib):
-        """Test detect_format with ZIP64 result."""
-        mock_lib.tacozip_detect_format.return_value = config.TACOZIP_FORMAT_ZIP64
-
-        result = bindings.detect_format("test_large.zip")
-
-        assert result == config.TACOZIP_FORMAT_ZIP64
-
-    @patch("tacozip.bindings._lib")
-    def test_detect_format_unknown(self, mock_lib):
-        """Test detect_format with unknown format."""
-        mock_lib.tacozip_detect_format.return_value = config.TACOZIP_FORMAT_UNKNOWN
-
-        result = bindings.detect_format("invalid.txt")
-
-        assert result == config.TACOZIP_FORMAT_UNKNOWN
-
-    @patch("tacozip.bindings._lib")
-    def test_validate_function(self, mock_lib):
-        """Test validate function with default level."""
-        mock_lib.tacozip_validate.return_value = config.TACOZ_VALID
-
-        result = bindings.validate("test.taco")
-
-        assert result == config.TACOZ_VALID
-        mock_lib.tacozip_validate.assert_called_once()
-        args = mock_lib.tacozip_validate.call_args[0]
-        assert args[0] == b"test.taco"
-        assert args[1] == config.TACOZIP_VALIDATE_NORMAL  # Default level
-
-    @patch("tacozip.bindings._lib")
-    def test_validate_with_level(self, mock_lib):
-        """Test validate function with specific level."""
-        mock_lib.tacozip_validate.return_value = config.TACOZ_VALID
-
-        result = bindings.validate("test.taco", config.TACOZIP_VALIDATE_DEEP)
-
-        assert result == config.TACOZ_VALID
-        args = mock_lib.tacozip_validate.call_args[0]
-        assert args[1] == config.TACOZIP_VALIDATE_DEEP
-
-    @patch("tacozip.bindings._lib")
-    def test_validate_invalid_result(self, mock_lib):
-        """Test validate function with invalid result."""
-        mock_lib.tacozip_validate.return_value = config.TACOZ_INVALID_NO_TACO
-
-        result = bindings.validate("regular.zip")
-
-        assert result == config.TACOZ_INVALID_NO_TACO
-
-    @patch("tacozip.bindings._lib")
     def test_get_library_version(self, mock_lib):
         """Test get_library_version function."""
         mock_lib.tacozip_get_version.return_value = b"0.9.0"
@@ -223,49 +142,6 @@ class TestBindings:
 
         version = bindings.get_library_version()
         assert version == "unknown"
-
-    def test_normalize_inputs(self):
-        """Test _normalize_inputs function."""
-        from tacozip.bindings import _normalize_inputs
-        import pathlib
-
-        # Test with string paths
-        src_files = ["file1.txt", "file2.txt"]
-        arc_files = ["arch1.txt", "arch2.txt"]
-
-        with patch("tacozip.bindings.pathlib.Path") as mock_path:
-            mock_path.return_value.resolve.return_value = "resolved_path"
-            mock_path.return_value.name = "filename"
-
-            normalized_src, normalized_arc = _normalize_inputs(src_files, arc_files)
-            assert len(normalized_src) == 2
-            assert len(normalized_arc) == 2
-            assert normalized_arc == arc_files
-
-        # Test with pathlib.Path objects
-        with patch("tacozip.bindings.pathlib.Path") as mock_path:
-            mock_path.return_value.resolve.return_value = "resolved_path"
-            mock_path.return_value.name = "filename"
-
-            path_objects = [mock_path("file1.txt"), mock_path("file2.txt")]
-            normalized_src, normalized_arc = _normalize_inputs(path_objects, None)
-            assert len(normalized_src) == 2
-            assert len(normalized_arc) == 2
-
-        # Test error with mismatched counts
-        with pytest.raises(ValueError):
-            _normalize_inputs(["file1.txt", "file2.txt"], ["arch1.txt"])
-
-    def test_minimal_output_check(self):
-        """Test _minimal_output_check function."""
-        from tacozip.bindings import _minimal_output_check
-
-        with patch("tacozip.bindings.pathlib.Path") as mock_path:
-            mock_path.return_value.parent.exists.return_value = True
-            mock_path.return_value.parent = pathlib.Path(".")
-
-            result = _minimal_output_check("test.zip")
-            assert isinstance(result, str)
 
 
 class TestReadHeaderBytes:

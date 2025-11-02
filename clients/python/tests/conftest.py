@@ -11,7 +11,6 @@ import shutil
 ENABLE_ZIP64_TESTS = os.getenv("TACOZIP_ENABLE_ZIP64_TESTS", "false").lower() == "true"
 
 
-# Print info about ZIP64 tests on collection
 def pytest_collection_modifyitems(config, items):
     """Mark and display info about ZIP64 tests."""
     zip64_count = sum(1 for item in items if "zip64" in item.keywords)
@@ -37,8 +36,6 @@ def mock_library():
     mock_lib.tacozip_update_header.return_value = 0
     mock_lib.tacozip_read_header.return_value = 0
     mock_lib.tacozip_parse_header.return_value = 0
-    mock_lib.tacozip_detect_format.return_value = 1  # ZIP32 by default
-    mock_lib.tacozip_validate.return_value = 0  # TACOZ_VALID
 
     # Add all required function attributes that match our current C API
     required_functions = [
@@ -47,16 +44,12 @@ def mock_library():
         "tacozip_update_header",
         "tacozip_read_header",
         "tacozip_parse_header",
-        "tacozip_detect_format",
-        "tacozip_validate",
     ]
 
     for func_name in required_functions:
         if not hasattr(mock_lib, func_name):
             if func_name == "tacozip_get_version":
                 setattr(mock_lib, func_name, Mock(return_value=b"1.0.0"))
-            elif func_name == "tacozip_detect_format":
-                setattr(mock_lib, func_name, Mock(return_value=1))
             else:
                 setattr(mock_lib, func_name, Mock(return_value=0))
 
@@ -96,28 +89,21 @@ def small_files(temp_dir):
 
 @pytest.fixture
 def large_files(temp_dir):
-    """Fixture providing large files that would trigger ZIP64 (only if enabled).
-
-    Creates 5 files of 1GB each = 5GB total (forces ZIP64 format).
-    Skips if TACOZIP_ENABLE_ZIP64_TESTS is not set to 'true'.
-    """
+    """Fixture providing large files that would trigger ZIP64 (only if enabled)."""
     if not ENABLE_ZIP64_TESTS:
         pytest.skip("ZIP64 tests disabled (set TACOZIP_ENABLE_ZIP64_TESTS=true)")
 
     files = []
     print("\nCreating large test files (5GB)...")
 
-    # Create 5 files of 1GB each = 5GB total (forces ZIP64)
     for i in range(5):
         file_path = temp_dir / f"large_{i}.bin"
         print(f"  Creating {file_path.name} (1GB)...")
 
-        # Write 1GB of data in chunks to avoid memory issues
         with open(file_path, "wb") as f:
             chunk = b"\x00" * (1024 * 1024)  # 1MB chunks
             for chunk_num in range(1024):  # 1024 chunks = 1GB
                 f.write(chunk)
-                # Print progress every 100MB
                 if chunk_num % 100 == 0 and chunk_num > 0:
                     print(f"    {chunk_num}MB written...")
 
@@ -141,15 +127,11 @@ def mock_native_library():
             "tacozip_update_header",
             "tacozip_read_header",
             "tacozip_parse_header",
-            "tacozip_detect_format",
-            "tacozip_validate",
         ]
 
         for func_name in required_functions:
             if func_name == "tacozip_get_version":
                 func_mock = Mock(return_value=b"1.0.0")
-            elif func_name == "tacozip_detect_format":
-                func_mock = Mock(return_value=1)  # ZIP32
             else:
                 func_mock = Mock(return_value=0)
             setattr(mock_lib, func_name, func_mock)

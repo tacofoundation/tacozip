@@ -35,6 +35,13 @@ class bdist_wheel(_bdist_wheel):
         super().finalize_options()
         self.root_is_pure = False  # put files under platlib, not purelib
 
+    def get_tag(self):
+        # tacozip binds its shared library through ctypes and never touches the
+        # CPython C API, so one wheel per platform runs on any Python 3 -- new
+        # interpreter releases need no rebuild.
+        _, _, plat = super().get_tag()
+        return "py3", "none", plat
+
 
 class BuildTacozipExt(_build_py):
     """Ensure the compiled tacozip shared library is bundled."""

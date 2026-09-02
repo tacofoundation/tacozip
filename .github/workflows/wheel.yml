@@ -155,23 +155,12 @@ jobs:
         with:
           python-version: '3.11'
 
-      - name: Build source distribution
-        run: |
-          cd clients/python
-          python -m pip install build
-          python -m build --sdist
-
       - name: Download wheels
         uses: actions/download-artifact@v4
         with:
           path: dist
           pattern: wheels-*
           merge-multiple: true
-
-      - name: Copy sdist
-        shell: bash
-        run: |
-          cp clients/python/dist/*.tar.gz dist/
 
       - name: Publish to PyPI
         uses: pypa/gh-action-pypi-publish@v1.12.4
